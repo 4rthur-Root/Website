@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ filename }} — SambaPME</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="preview-page">
+  <div class="preview-topbar">
+    <a href="{{ url_for('portal', share=share) }}" class="btn-action btn-preview">← Back</a>
+    <span style="font-family:var(--font-mono);font-size:13px;color:var(--text-primary)">📄 {{ filename }}</span>
+    <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)">/{{ share }}</span>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Theme" style="margin-left:auto">🌙</button>
+  </div>
+  <div class="preview-content">
+    <pre class="file-content">{{ content }}</pre>
+  </div>
+  <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SambaPME — Sign in</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+
+  <div style="position:fixed;top:16px;right:16px">
+    <button class="theme-toggle" onclick="toggleTheme()" title="Change theme">🌙</button>
+  </div>
+
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="login-logo">🗂️</span>
+      <div class="login-title">SambaPME</div>
+      <div class="login-sub">Secure file server</div>
+      <div class="login-badges">
+        <span class="login-badge">🔒 SMBv1 disabled</span>
+        <span class="login-badge">🛡️ Fail2ban active</span>
+        <span class="login-badge">📋 Logging enabled</span>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="login-error">⚠️ {{ error }}</div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}" style="margin-bottom:14px">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('login') }}">
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input class="form-input" type="text" name="username"
+               placeholder="direction1, accounting1, admin..."
+               autocomplete="username" autofocus required>
+      </div>
+      <div class="form-group" style="margin-bottom:20px">
+        <label class="form-label">Password</label>
+        <div style="position:relative">
+          <input class="form-input" type="password" name="password"
+                 id="pwd-input" placeholder="Samba password"
+                 autocomplete="current-password" required>
+          <button type="button" onclick="togglePwd()"
+                  style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">
+            👁
+          </button>
+        </div>
+      </div>
+      <button type="submit" class="btn-primary">Sign in</button>
+    </form>
+
+    <div class="demo-accounts">
+      <button class="demo-toggle" onclick="toggleDemo(this)">
+        <span id="demo-arrow">▶</span> Demo accounts
+      </button>
+      <div class="demo-list" id="demo-list" style="display:none">
+        {% for user, group in [
+          ('direction1','direction'), ('direction2','direction'),
+          ('compta1','comptabilite'), ('compta2','comptabilite'),
+          ('rh1','rh'), ('rh2','rh'),
+          ('tech1','technique'), ('tech2','technique'),
+          ('admin','admin')
+        ] %}
+        <div class="demo-item" onclick="fillLogin('{{ user }}')">
+          {{ user }} <span style="color:var(--text-muted)">· {{ group }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SambaPME - Admin</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="admin-body">
+
+  <aside class="admin-sidebar">
+    <div class="admin-brand">
+      <span>🗂️</span>
+      <div>
+        <div class="admin-brand-name">SambaPME</div>
+        <div class="admin-brand-sub">Administration</div>
+      </div>
+    </div>
+    <nav class="admin-nav">
+      {% set tabs = [
+        ('overview','📊','Overview'),
+        ('shares','📁','Shares'),
+        ('fail2ban','🛡️','Fail2ban'),
+        ('logs','📋','Logs'),
+        ('users','👥','Users'),
+        ('audit','🔍','Audit'),
+        ('backup','💾','Backups'),
+        ('security','🔐','Security'),
+      ] %}
+      {% for id, icon, label in tabs %}
+      <button class="admin-nav-item {% if id == 'overview' %}active{% endif %}"
+              id="nav-{{ id }}" onclick="showTab('{{ id }}')">
+        {{ icon }} {{ label }}
+        {% if id == 'fail2ban' and data.get('ok') and data.fail2ban.current_banned|length > 0 %}
+        <span style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--accent-red);animation:pulse-red 1.5s infinite;display:inline-block"></span>
+        {% endif %}
+      </button>
+      {% endfor %}
+    </nav>
+    <div class="admin-user">
+      <div class="avatar">AD</div>
+      <div>
+        <div class="username">Administrateur</div>
+        <div class="server-ip">{{ server_ip }}</div>
+      </div>
+    </div>
+    <div style="padding:0 12px 8px;display:flex;gap:6px">
+      <button class="theme-toggle" onclick="toggleTheme()" title="Theme" style="flex-shrink:0">🌙</button>
+      <a href="{{ url_for('logout') }}" class="btn-logout-admin" style="flex:1;display:flex;align-items:center;justify-content:center">Sign out</a>
+    </div>
+  </aside>
+
+  <div class="admin-main">
+    <div class="admin-header">
+      <h1 id="tab-title">📊 Vue d'ensemble</h1>
+      <div class="admin-header-badges">
+        {% if data.get('ok') %}
+          <span class="badge-status green">🟢 smbd {{ data.smbd }}</span>
+          <span class="badge-status blue">🔒 SMB3</span>
+          {% if data.fail2ban.current_banned|length > 0 %}
+          <span class="badge-status red f2b-badge-blink">🚫 {{ data.fail2ban.current_banned|length }} ban(s)</span>
+          {% else %}
+          <span class="badge-status orange">🛡️ Fail2ban</span>
+          {% endif %}
+        {% else %}
+          <span class="badge-status red">⚠️ Hors ligne</span>
+        {% endif %}
+        <button onclick="location.reload()" class="btn-refresh" id="refresh-btn">↻ Actualiser</button>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}" style="margin:12px 24px 0">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="admin-content">
+
+      {% if not data.get('ok') %}
+      <div class="error-box" style="max-width:600px">
+        <div class="error-code">⚠️ SSH connection unavailable</div>
+        <p>{{ data.error }}</p>
+        <p>Check that the VM is running and SSH is active on {{ server_ip }}:22.</p>
+      </div>
+
+      {% else %}
+
+      {# Overview #}
+      <div id="tab-overview" class="tab-section active">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(56,139,253,.12)">⚙️</div>
+            <div>
+              <div class="kpi-label">Samba</div>
+              <div class="kpi-value" style="font-size:13px;margin-top:2px">{{ data.samba_version | replace('Version ','') }}</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(63,185,80,.12)">🔗</div>
+            <div><div class="kpi-label">Sessions SMB</div><div class="kpi-value">{{ data.smb_count }}</div></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(163,113,247,.12)">💻</div>
+            <div>
+              <div class="kpi-label">Charge CPU</div>
+              <div class="kpi-value">{{ data.load_1m }}<span style="font-size:12px;color:var(--text-muted)"> / {{ data.cpu_count }}</span></div>
+            </div>
+          </div>
+          <div class="kpi-card" style="grid-column:span 2">
+            <div class="kpi-icon" style="background:rgba(163,113,247,.12)">🧠</div>
+            <div style="flex:1">
+              <div class="kpi-label">Memory - {{ data.memory.used_str }} / {{ data.memory.total_str }}</div>
+              <div class="mini-bar">
+                <div class="mini-bar-fill {{ 'bar-danger' if data.memory.percent > 80 else 'bar-warn' if data.memory.percent > 60 else 'bar-ok' }}"
+                     style="width:{{ data.memory.percent }}%"></div>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">{{ data.memory.percent }}% used</div>
+            </div>
+          </div>
+          <div class="kpi-card {% if data.fail2ban.current_banned|length > 0 %}f2b-alert{% endif %}">
+            <div class="kpi-icon" style="background:rgba(248,81,73,.12)">🚫</div>
+            <div>
+              <div class="kpi-label">Bans Fail2ban</div>
+              <div class="kpi-value" style="color:{{ 'var(--accent-red)' if data.fail2ban.total_banned != '0' else 'var(--accent-green)' }}">
+                {{ data.fail2ban.total_banned if data.fail2ban.available else '?' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Disque -->
+        <div class="kpi-card" style="margin-bottom:20px">
+          <div class="kpi-icon" style="background:rgba(210,153,34,.12)">💾</div>
+          <div style="flex:1">
+            <div class="kpi-label">Disk /srv/samba - {{ data.disk.used }} used · {{ data.disk.avail }} free / {{ data.disk.size }}</div>
+            <div class="mini-bar" style="margin-top:8px">
+              <div class="mini-bar-fill {{ 'bar-danger' if data.disk.percent > 85 else 'bar-warn' if data.disk.percent > 65 else 'bar-ok' }}"
+                   style="width:{{ data.disk.percent }}%"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">{{ data.disk.percent }}% used</div>
+          </div>
+        </div>
+
+        <div class="info-row">
+          <div class="info-card">
+            <h3>⏱️ Services</h3>
+            <p class="info-val">{{ data.uptime }}</p>
+            <div style="margin-top:10px">
+              {% for name, val in [('smbd', data.smbd), ('nmbd', data.nmbd), ('ssh', data.sshd)] %}
+              <div class="service-line">
+                <span>{{ name }}</span>
+                <span class="badge-status {{ 'green' if val == 'active' else 'red' }}">{{ val }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="info-card">
+            <h3>📈 Activity - recent connections</h3>
+            {% if data.user_stats %}
+            <table style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:4px 0;font-size:10px;color:var(--text-muted);font-family:var(--font-mono);letter-spacing:1px">USER</th>
+                  <th style="text-align:center;font-size:10px;color:var(--accent-green);font-family:var(--font-mono)">✅ OK</th>
+                  <th style="text-align:center;font-size:10px;color:var(--accent-red);font-family:var(--font-mono)">❌ FAILURES</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for s in data.user_stats[:8] %}
+              <tr style="border-top:1px solid var(--border)">
+                <td style="padding:5px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-primary)">{{ s.user }}</td>
+                <td style="text-align:center;color:var(--accent-green);font-family:var(--font-mono);font-size:12px;font-weight:700">{{ s.ok }}</td>
+                <td style="text-align:center;color:var(--accent-red);font-family:var(--font-mono);font-size:12px;font-weight:700">{{ s.fail }}</td>
+              </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p style="color:var(--text-muted);font-size:13px;margin-top:8px">No data available.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {# Shares #}
+      <div id="tab-shares" class="tab-section">
+        <div class="shares-grid">
+          {% for share, meta in group_meta.items() %}
+          {% set info = data.shares_disk.get(share, {}) %}
+          <div class="share-card">
+            <div class="share-card-icon" style="color:{{ meta.color }}">{{ meta.icon }}</div>
+            <div class="share-card-name">/{{ share }}</div>
+            <div class="share-card-path">/srv/samba/{{ share }}/</div>
+            <div class="share-card-stats">
+              <span>📄 {{ info.get('count','?') }} file(s)</span>
+              <span>💾 {{ info.get('size','?') }}</span>
+            </div>
+            <div class="share-card-perm">chmod <strong>{{ '2777' if share == 'commun' else '2770' }}</strong></div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# Fail2ban #}
+      <div id="tab-fail2ban" class="tab-section">
+        {% set f2b = data.fail2ban %}
+        {% if not f2b.available %}
+        <div class="error-box"><div class="error-code">⚠️ Fail2ban indisponible</div></div>
+        {% else %}
+        <div class="kpi-grid" style="margin-bottom:20px">
+          {% for label, val, color in [('Tentatives', f2b.total_failed, 'var(--accent-orange)'), ('Bans totaux', f2b.total_banned, 'var(--accent-red)'), ('Bans actifs', f2b.current_banned|length, 'var(--accent-red)')] %}
+          <div class="kpi-card {% if loop.index == 3 and f2b.current_banned|length > 0 %}f2b-alert{% endif %}">
+            <div class="kpi-icon" style="background:rgba(248,81,73,.1)">🚫</div>
+            <div><div class="kpi-label">{{ label }}</div><div class="kpi-value" style="color:{{ color }}">{{ val }}</div></div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="admin-table-wrap" style="margin-bottom:20px">
+          <div style="padding:10px 16px;background:var(--bg-elevated);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-secondary);font-family:var(--font-mono);letter-spacing:.8px">
+            🚫 IPS ACTUELLEMENT BANNIES
+          </div>
+          {% if f2b.banned_details %}
+          <table class="admin-table">
+            <thead><tr>
+              <th>Adresse IP</th><th>Tentatives</th><th>Date du ban</th><th>Action</th>
+            </tr></thead>
+            <tbody>
+            {% for d in f2b.banned_details %}
+            <tr>
+              <td style="font-family:var(--font-mono);color:var(--accent-red);font-weight:700">{{ d.ip }}</td>
+              <td style="font-family:var(--font-mono);color:var(--accent-orange)">{{ d.attempts }}</td>
+              <td style="font-family:var(--font-mono);color:var(--text-muted)">{{ d.ban_time }}</td>
+              <td>
+                <form method="POST" action="{{ url_for('unban_ip') }}" style="display:inline">
+                  <input type="hidden" name="ip" value="{{ d.ip }}">
+                  <button type="submit" class="btn-action"
+                          style="background:rgba(63,185,80,.12);color:var(--accent-green);border:1px solid rgba(63,185,80,.2)"
+                          onclick="return confirm('Unban {{ d.ip }}?')">✅ Unban</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div style="padding:20px 16px;color:var(--text-muted);font-size:13px">✅ No IPs are currently banned.</div>
+          {% endif %}
+        </div>
+
+        <div class="log-box">
+          <div class="log-header">📋 Fail2ban log</div>
+          <div class="log-body" id="f2b-log-body">
+            {% for line in data.fail2ban_log.splitlines() %}
+            {% set is_ban = 'Ban ' in line %}
+            {% set is_unban = 'Unban' in line %}
+            {% set is_found = 'Found' in line %}
+            <div class="log-line {{ 'log-ban' if is_ban else 'log-unban' if is_unban else 'log-found' if is_found else '' }}">
+              {% if is_ban %}🚫{% elif is_unban %}✅{% elif is_found %}⚠️{% else %}📋{% endif %}
+              {{ line }}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      {# Logs #}
+      <div id="tab-logs" class="tab-section">
+        <div class="filter-bar">
+          <input type="text" id="log-filter" class="filter-input"
+                 placeholder="🔍 Filter by user, IP, status..."
+                 oninput="filterLogs()">
+          <button onclick="document.getElementById('log-filter').value='';filterLogs()" class="btn-refresh">✕ Clear</button>
+        </div>
+
+        <!-- Human-friendly parsed logs -->
+        <div class="log-box" style="margin-bottom:16px">
+          <div class="log-header">
+            🔐 Authentifications Samba
+            <span style="font-size:10px;color:var(--text-muted);font-weight:400">
+              🟢 Success &nbsp; 🔴 Failure &nbsp; 🟡 Warning
+            </span>
+          </div>
+          <div style="display:grid;grid-template-columns:130px 100px 80px 1fr;background:var(--bg-elevated);border-bottom:1px solid var(--border)">
+            {% for h in ['TIMESTAMP','USER','STATUS','DETAIL'] %}
+            <div style="padding:8px 14px;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:1px;font-family:var(--font-mono)">{{ h }}</div>
+            {% endfor %}
+          </div>
+          <div id="auth-log" class="log-body" style="max-height:350px">
+            {% for line in data.samba_auth.splitlines() %}
+            {% if line.strip() %}
+            {% set is_ok   = 'NT_STATUS_OK' in line or 'succeeded' in line.lower() %}
+            {% set is_fail = 'NT_STATUS' in line and 'OK' not in line %}
+            <div class="log-entry auth-entry" data-line="{{ line | lower }}">
+              <div class="log-ts">
+                {% set ts = line[:19] if line|length > 19 else '-' %}
+                {{ ts if ts[0].isdigit() else '-' }}
+              </div>
+              <div class="log-user">
+                {% if 'Account-Name:' in line %}
+                  {{ line.split('Account-Name:')[1].split()[0] if 'Account-Name:' in line else '?' }}
+                {% elif 'User:' in line %}
+                  {{ line.split('User:')[1].strip().split()[0] if 'User:' in line else '?' }}
+                {% else %}-{% endif %}
+              </div>
+              <div class="{{ 'log-status-ok' if is_ok else 'log-status-fail' if is_fail else 'log-status-warn' }}">
+                {{ '✅ OK' if is_ok else '❌ Denied' if is_fail else '⚠️ Info' }}
+              </div>
+              <div class="log-detail" title="{{ line }}">{{ line | truncate(120) }}</div>
+            </div>
+            {% endif %}
+            {% else %}
+            <div style="padding:20px;color:var(--text-muted);text-align:center;font-size:13px">No entries available.</div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="log-box">
+          <div class="log-header">📄 log.smbd - last 30 lines</div>
+          <div class="log-body">
+            {% for line in data.samba_raw.splitlines() %}
+            {% if line.strip() %}
+            <div class="log-line">{{ line }}</div>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      {# Users #}
+      <div id="tab-users" class="tab-section">
+        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:20px">
+          <div>
+            <h3 style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;margin-bottom:12px;text-transform:uppercase">Comptes Samba actifs</h3>
+            <div class="admin-table-wrap">
+              {% if data.samba_users %}
+              <table class="admin-table">
+                <thead><tr>
+                  <th>User</th><th>Group</th><th>Status</th><th>Actions</th>
+                </tr></thead>
+                <tbody>
+                {% for u in data.samba_users %}
+                <tr>
+                  <td style="font-family:var(--font-mono);font-weight:600">{{ u.username }}</td>
+                  <td><span class="badge-status blue">{{ u.group }}</span></td>
+                  <td><span class="badge-status {{ 'green' if u.enabled else 'orange' }}">{{ '✅ Actif' if u.enabled else '⚠️ Inactif' }}</span></td>
+                  <td>
+                    <div style="display:flex;gap:4px">
+                      <button onclick="showUserLogs('{{ u.username }}')"
+                              class="btn-action btn-preview" title="Logs">📋</button>
+                      <button onclick="openChangePwd('{{ u.username }}')"
+                              class="btn-action" style="background:rgba(210,153,34,.12);color:var(--accent-orange);border:1px solid rgba(210,153,34,.2)" title="Change password">🔑</button>
+                      <button onclick="openDelete('{{ u.username }}')"
+                              class="btn-action btn-del" title="Delete">🗑️</button>
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+              {% else %}
+              <div style="padding:20px;color:var(--text-muted)">No users found.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div>
+            <h3 style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;margin-bottom:12px;text-transform:uppercase">Add a user</h3>
+            <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px">
+              <form method="POST" action="{{ url_for('add_user') }}">
+                <div class="admin-form-group">
+                  <label>Username</label>
+                  <input type="text" name="username" placeholder="ex: compta3" pattern="[a-z][a-z0-9_]{2,19}" required>
+                  <small>3-20 car. · minuscules · chiffres · _</small>
+                </div>
+                <div class="admin-form-group">
+                  <label>Group</label>
+                  <select name="group" required>
+                    <option value="">-- Choisir --</option>
+                    {% for g in ['direction','comptabilite','rh','technique'] %}
+                    <option value="{{ g }}">{{ g }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="admin-form-group">
+                  <label>Password</label>
+                  <input type="password" name="password" minlength="8" required>
+                </div>
+                <div class="admin-form-group">
+                  <label>Confirmer</label>
+                  <input type="password" name="confirm" minlength="8" required>
+                </div>
+                <button type="submit" class="btn-confirm" style="width:100%;margin-top:6px;padding:10px;border-radius:var(--radius-sm)">➕ Create</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# Audit #}
+      <div id="tab-audit" class="tab-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <p style="color:var(--text-muted);font-size:13px;font-family:var(--font-mono)">
+            Local log · <code>audit.log</code>
+          </p>
+          <button onclick="loadAudit()" class="btn-refresh">↻ Refresh</button>
+        </div>
+        <div class="audit-grid">
+          <div class="audit-header">
+            {% for h in ['Timestamp','Actor','Action','Target','Detail'] %}
+            <div>{{ h }}</div>
+            {% endfor %}
+          </div>
+          <div id="audit-body" style="max-height:500px;overflow-y:auto">
+            {% if data.audit_log %}
+              {% for line in data.audit_log %}
+              {% set p = line.split(' | ') %}
+              {% set action = p[2].strip() if p|length > 2 else '' %}
+              <div class="audit-row">
+                <div style="color:var(--text-muted)">{{ p[0] if p|length > 0 else '' }}</div>
+                <div style="color:var(--accent-blue);font-weight:600">{{ p[1].strip() if p|length > 1 else '' }}</div>
+                <div style="font-weight:700;color:{%
+                  if 'DELETE' in action %}var(--accent-red){%
+                  elif 'ADD' in action %}var(--accent-green){%
+                  elif 'BAN' in action %}var(--accent-orange){%
+                  elif 'PASSWORD' in action or 'PWD' in action %}var(--accent-orange){%
+                  elif 'LOGIN' in action %}var(--accent-blue){%
+                  else %}var(--text-secondary){% endif %}">{{ action }}</div>
+                <div style="color:var(--text-primary)">{{ p[3].strip() if p|length > 3 else '' }}</div>
+                <div style="color:var(--text-muted)">{{ p[4].strip() if p|length > 4 else '' }}</div>
+              </div>
+              {% endfor %}
+            {% else %}
+            <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">
+              No actions recorded.
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {# Backups #}
+      <div id="tab-backup" class="tab-section">
+        <div class="backup-info">
+          <div class="info-card">
+            <h3>📅 Cron schedule</h3>
+            <p style="font-family:var(--font-mono);font-size:13px"><code>0 2 * * *</code> - daily at 02:00</p>
+            <p style="margin-top:8px">Sunday: <strong>full</strong> (tar -czf)</p>
+            <p>Mon-Sat: <strong>incremental</strong> (rsync)</p>
+          </div>
+          <div class="info-card">
+            <h3>📂 Restore</h3>
+            <p style="font-family:var(--font-mono);font-size:11px">rsync -av --archive /srv/backup/.../ /srv/samba/&lt;share&gt;/</p>
+            <p style="color:var(--accent-orange);font-size:12px;margin-top:8px">⚠️ Never use <code>sudo cp</code></p>
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('run_backup') }}" style="margin:16px 0">
+          <button type="submit" class="btn-confirm" style="padding:10px 20px;border-radius:var(--radius-sm)"
+                  onclick="return confirm('Run a backup now?')">▶️ Run now</button>
+        </form>
+        <div class="log-box">
+          <div class="log-header">💾 backup.log <button onclick="loadBackup()" class="btn-refresh" style="font-size:11px;padding:3px 8px">Load</button></div>
+          <div class="log-body" id="backup-log">
+            <div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center">Click "Load" to display the log.</div>
+          </div>
+        </div>
+      </div>
+
+      {# Security #}
+      <div id="tab-security" class="tab-section">
+        {% set checks = [
+          ('🔒','SMBv1 disabled',True,'min protocol = SMB2 · max protocol = SMB3'),
+          ('🔑','Per-user NTLMv2 authentication',True,'security = user - no anonymous access'),
+          ('🚫','Anonymous enumeration blocked',True,'restrict anonymous = 2'),
+          ('🛡️','Fail2ban actif',True,'maxretry=3 · bantime=600s · jail samba'),
+          ('🔐','Chiffrement SMB3',True,'smb encrypt = required - Wireshark ne voit que "Encrypted SMB3"'),
+          ('📋','Logging enabled',True,'log level = 2 · one file per machine'),
+          ('💾','Automatic backups',True,'cron 0 2 * * *'),
+          ('🔍','Flask audit log',True,'audit.log - all admin actions recorded'),
+          ('🌐','IP access restriction',False,'hosts allow not configured (possible improvement)'),
+        ] %}
+        <div class="security-list">
+          {% for icon,label,ok,detail in checks %}
+          <div class="security-item {{ 'sec-ok' if ok else 'sec-warn' }}">
+            <span class="sec-icon">{{ icon }}</span>
+            <div style="flex:1">
+              <div class="sec-label">{{ label }}</div>
+              <div class="sec-detail">{{ detail }}</div>
+            </div>
+            <span class="badge-status {{ 'green' if ok else 'orange' }}">{{ '✅ Active' if ok else '⚠️ To do' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- User logs modal -->
+  <div id="user-logs-modal" class="modal-overlay">
+    <div class="modal-box" style="width:700px;max-height:80vh;overflow:hidden;padding:0">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span id="logs-modal-title" style="font-weight:700;font-family:var(--font-mono)">Logs</span>
+        <button onclick="closeModal('user-logs-modal')" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div id="logs-modal-content" class="log-body" style="max-height:65vh;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <!-- Password change modal -->
+  <div id="change-pwd-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">🔑 Change password</div>
+      <div class="modal-sub" id="change-pwd-sub"></div>
+      <form method="POST" action="{{ url_for('admin_change_password') }}">
+        <input type="hidden" name="username" id="change-pwd-user">
+        <div class="modal-form-group">
+          <label class="form-label">New password</label>
+          <input class="form-input" type="password" name="new_password" minlength="8" required>
+        </div>
+        <div class="modal-form-group">
+          <label class="form-label">Confirm</label>
+          <input class="form-input" type="password" name="confirm_password" minlength="8" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('change-pwd-modal')">Cancel</button>
+          <button type="submit" class="btn-confirm" style="background:var(--accent-orange)">Change</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Delete modal -->
+  <div id="delete-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">🗑️ Delete user</div>
+      <div class="modal-sub">
+        Type <strong id="delete-name-label" style="color:var(--accent-red)"></strong> exactly to confirm.<br>
+        <small style="color:var(--text-muted)">Files in the share will not be deleted.</small>
+      </div>
+      <form method="POST" action="{{ url_for('delete_user') }}">
+        <input type="hidden" name="username" id="delete-user-input">
+        <input class="form-input" type="text" name="confirm_username"
+               placeholder="Username..." style="margin-bottom:0">
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('delete-modal')">Cancel</button>
+          <button type="submit" class="btn-confirm danger">Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="admin-config"
+       data-audit-url="{{ url_for('get_audit') }}"
+       data-backup-url="{{ url_for('backup_status') }}"
+       data-refresh-url="{{ url_for('admin_refresh') }}"></div>
+  <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

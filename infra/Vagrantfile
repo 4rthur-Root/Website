@@ -1,0 +1,60 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Vagrantfile  Ubuntu Server 24.04
+
+VAGRANTFILE_API_VERSION = "2"
+
+# Paramètres réseau
+# Le script setup_samba.sh attend SERVER_IP=10.0.1.10 par défaut.
+# On met la VM sur le même subnet que l'hôte via un réseau privé libvirt.
+SERVER_IP   = "10.0.1.10"
+SERVER_NET  = "10.0.1.0/24"
+
+# Credentials
+# Doivent correspondre aux variables attendues par setup_samba.sh
+SSH_USER     = "vagrant"
+SSH_PASSWORD = "vagrant"
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  # --- Box --------------------------------------------------
+  # ubuntu/jammy64 est 22.04. Pour 24.04, on utilise bento/ubuntu-24.04
+  # (bento est maintenu et fonctionne bien avec libvirt).
+  config.vm.box      = "bento/ubuntu-24.04"
+  config.vm.hostname = "sambapme"
+
+  # --- Réseau privé (libvirt) -------------------------------
+  # :private_network crée un bridge virbrX sur l'hôte avec l'IP demandée.
+  config.vm.network "private_network",
+                    ip: SERVER_IP,
+                    libvirt__network_name: "sambapme-net",
+                    libvirt__dhcp_enabled: false
+
+  # --- Provider libvirt -------------------------------------
+  config.vm.provider :libvirt do |lv|
+    lv.memory            = 2048      # 2 Go suffisent pour Samba + fail2ban
+    lv.cpus              = 2
+    lv.disk_bus          = "virtio"
+    lv.nic_model_type    = "virtio"
+    lv.default_prefix    = "sambapme_"
+    lv.management_network_name    = "sambapme-mgmt"
+    lv.management_network_address = "192.168.121.0/24"
+  end
+
+  # --- Désactiver le provisioning automatique ---------------
+  # Le script setup_samba.sh s'exécute DEPUIS L'HÔTE (pas depuis la VM).
+  # Donc on ne met PAS de config.vm.provision "shell" ici.
+  # Voir la section "Utilisation" ci-dessous.
+
+  # --- (Optionnel) Synchroniser le dossier du projet --------
+  # Utile si tu veux accéder aux fichiers depuis la VM.
+  config.vm.synced_folder ".", "/home/vagrant/Samba",
+                          type: "rsync",
+                          rsync__exclude: [".git/", "venv/", "__pycache__/"]
+
+  # --- (Optionnel) Port forwarding --------------------------
+  # Décommenter si tu veux tester depuis l'hôte sans passer par le bridge.
+  # config.vm.network "forwarded_port", guest: 445, host: 4450
+  # config.vm.network "forwarded_port", guest: 139, host: 1390
+end
