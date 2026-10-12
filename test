@@ -1,0 +1,144 @@
+https://pimylifeup.com/docker-samba-share/
+
+Yes, you can adapt it. The servercontainers/samba image handles user/group creation and Samba password setup internally, so you can drop the useradd, smbpasswd, and smb.conf writing parts of your script. Here's the mapping:
+
+services:
+  samba:
+    image: ghcr.io/servercontainers/samba:latest
+    restart: always
+    network_mode: host
+    cap_add:
+      - CAP_NET_ADMIN
+    environment:
+      MODEL: 'TimeCapsule'
+      AVAHI_NAME: SAMBAPME
+
+      SAMBA_CONF_LOG_LEVEL: 3
+
+      # --- Global smb.conf settings ---
+      SAMBA_GLOBAL_CONFIG_min_SPACE_protocol: SMB2
+      SAMBA_GLOBAL_CONFIG_max_SPACE_protocol: SMB3
+      SAMBA_GLOBAL_CONFIG_smb_SPACE_encrypt: required
+      SAMBA_GLOBAL_CONFIG_server_STRING: SambaPME Server
+      SAMBA_GLOBAL_CONFIG_netbios_SPACE_name: SAMBAPME
+
+      # --- Groups ---
+      GROUP_direction: 1001
+      GROUP_comptabilite: 1002
+      GROUP_rh: 1003
+      GROUP_technique: 1004
+
+      # --- Users ---
+      ACCOUNT_direction1: ${SAMBA_PASSWORD}
+      UID_direction1: 10001
+      GROUPS_direction1: direction
+
+      ACCOUNT_direction2: ${SAMBA_PASSWORD}
+      UID_direction2: 10002
+      GROUPS_direction2: direction
+
+      ACCOUNT_compta1: ${SAMBA_PASSWORD}
+      UID_compta1: 10003
+      GROUPS_compta1: comptabilite
+
+      ACCOUNT_compta2: ${SAMBA_PASSWORD}
+      UID_compta2: 10004
+      GROUPS_compta2: comptabilite
+
+      ACCOUNT_rh1: ${SAMBA_PASSWORD}
+      UID_rh1: 10005
+      GROUPS_rh1: rh
+
+      ACCOUNT_rh2: ${SAMBA_PASSWORD}
+      UID_rh2: 10006
+      GROUPS_rh2: rh
+
+      ACCOUNT_tech1: ${SAMBA_PASSWORD}
+      UID_tech1: 10007
+      GROUPS_tech1: technique
+
+      ACCOUNT_tech2: ${SAMBA_PASSWORD}
+      UID_tech2: 10008
+      GROUPS_tech2: technique
+
+      # --- Shares ---
+      SAMBA_VOLUME_CONFIG_direction: |
+        [direction]
+          path = /shares/direction
+          valid users = @direction
+          read only = no
+          create mask = 0660
+          directory mask = 2770
+          force group = direction
+
+      SAMBA_VOLUME_CONFIG_comptabilite: |
+        [comptabilite]
+          path = /shares/comptabilite
+          valid users = @comptabilite
+          read only = no
+          create mask = 0660
+          directory mask = 2770
+          force group = comptabilite
+
+      SAMBA_VOLUME_CONFIG_rh: |
+        [rh]
+          path = /shares/rh
+          valid users = @rh
+          read only = no
+          create mask = 0660
+          directory mask = 2770
+          force group = rh
+
+      SAMBA_VOLUME_CONFIG_technique: |
+        [technique]
+          path = /shares/technique
+          valid users = @technique
+          read only = no
+          create mask = 0660
+          directory mask = 2770
+          force group = technique
+
+      SAMBA_VOLUME_CONFIG_commun: |
+        [commun]
+          path = /shares/commun
+          valid users = @direction @comptabilite @rh @technique
+          read only = no
+          create mask = 0664
+          directory mask = 2777
+
+    volumes:
+      - /etc/avahi/services/:/external/avahi
+      - /srv/samba/direction:/shares/direction
+      - /srv/samba/comptabilite:/shares/comptabilite
+      - /srv/samba/rh:/shares/rh
+      - /srv/samba/technique:/shares/technique
+      - /srv/samba/commun:/shares/commun   
+
+SAMBA_PASSWORD=Samba2024!   
+
+| Your script (systemd) | Docker equivalent |
+|---|---|
+| `groupadd` + `useradd` + `smbpasswd` | Handled automatically by `GROUP_*`, `ACCOUNT_*`, `UID_*`, `GROUPS_*` env vars |
+| `smb.conf` `[global]` section | `SAMBA_GLOBAL_CONFIG_*` env vars |
+| `smb.conf` share sections | `SAMBA_VOLUME_CONFIG_*` env vars |
+| `systemctl enable --now smbd nmbd` | The image runs them as a supervised process |
+| Avahi / WSDD discovery | Built into the image (enabled by default) |
+
+What you still need to handle outside the container
+Fail2ban — run as a separate container (e.g. linuxserver/fail2ban) or on the host, pointing at Samba logs.
+Backup cron — keep your backup_samba.sh + crontab on the host (it just tars/rsyncs /srv/samba/ which is still a host directory).
+Rsyslog — host-level, unchanged.
+Host directory permissions — your chown root:$group + chmod 2770 steps still apply to the host paths (/srv/samba/*). The container's internal UID/GID must match, or you'll get permission denied. Since you're using network_mode: host and the image creates users with the UIDs you specify, make sure the host directories are owned by those UIDs:
+# On the host, after creating the compose file:
+chown 10001:1001 /srv/samba/direction
+chown 10003:1002 /srv/samba/comptabilite
+chown 10005:1003 /srv/samba/rh
+chown 10007:1004 /srv/samba/technique
+chown 10001:0 /srv/samba/commun
+
+Or simpler: just use the same GIDs for the host groups and let force group handle it — the key is that the host directory owner's GID matches the GROUP_* value in the compose file. 
+
+Caveats
+@group syntax in valid users works because the image passes the string verbatim into smb.conf, and the groups exist inside the container. If you hit issues, fall back to explicit user lists: valid users = direction1, direction2.
+smb encrypt = required is set via SAMBA_GLOBAL_CONFIG_smb_SPACE_encrypt (spaces in the key become SPACE).
+If you don't need Time Machine or WSDD (Windows discovery), you can add WSDD2_DISABLE: 1 and AVAHI_DISABLE: 1 to reduce noise.

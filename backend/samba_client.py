@@ -1,5 +1,5 @@
 """
-samba_client.py -- SambaPME v7
+samba_client.py 
 Opérations SMB2/3 : list, upload, stream, delete, preview.
 require_encryption=True -- compatible smb encrypt = required sur le serveur.
 """

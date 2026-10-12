@@ -18,9 +18,9 @@ load_dotenv()
 
 import samba_client as smb
 import admin_logic  as adm
-import ueba_hook
+#import ueba_hook
 
-app = Flask(__name__, template_folder="website/templates", static_folder="website/static")
+app = Flask(__name__, template_folder="frontend/templates", static_folder="frontend/static")
 app.secret_key                  = os.getenv("FLASK_SECRET_KEY", "dev_key_change_me")
 app.config["SESSION_TYPE"]      = "filesystem"
 app.config["SESSION_FILE_DIR"]  = "/tmp/flask_sessions_samba"
@@ -29,7 +29,7 @@ app.config["SESSION_USE_SIGNER"]= True
 app.config["MAX_CONTENT_LENGTH"]= 500 * 1024 * 1024  # 500 Mo max
 os.makedirs("/tmp/flask_sessions_samba", exist_ok=True)
 FlaskSession(app)
-app.register_blueprint(ueba_hook.ueba_bp)
+#app.register_blueprint(ueba_hook.ueba_bp)
 
 GROUP_META = {
     "direction":    {"label": "Direction",       "color": "#3b82f6", "icon": "🏛️"},
@@ -182,9 +182,6 @@ def upload(share):
         result = smb.upload_file(share, file.filename, data,
                                  session["username"], session["password"])
         if result["ok"]:
-            ueba_hook.record_flask_event("upload", share,
-                                         filename=file.filename,
-                                         size_bytes=len(data))
             flash(f"✅ '{file.filename}' uploaded to /{share}", "success")
         else:
             flash(f"⛔ {result['error']}", "error")
@@ -196,7 +193,7 @@ def upload(share):
 
 @app.route("/stream/<share>/<path:filename>")
 @login_required
-@ueba_hook.lf2r("download")
+##@ueba_hook.lf2r("download")
 def stream_download(share, filename):
     if share not in GROUP_ACCESS.get(session["group"], []):
         abort(403)
@@ -220,7 +217,7 @@ def stream_download(share, filename):
 
 @app.route("/preview/<share>/<path:filename>")
 @login_required
-@ueba_hook.lf2r("preview")
+##@ueba_hook.lf2r("preview")
 def preview(share, filename):
     if share not in GROUP_ACCESS.get(session["group"], []):
         abort(403)
@@ -249,7 +246,7 @@ def preview(share, filename):
 
 @app.route("/delete/<share>/<path:filename>", methods=["POST"])
 @login_required
-@ueba_hook.lf2r("delete")
+#@ueba_hook.lf2r("delete")
 def delete(share, filename):
     if share not in GROUP_ACCESS.get(session["group"], []):
         flash("⛔ NT_STATUS_ACCESS_DENIED", "error")
@@ -416,13 +413,14 @@ def run_backup():
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#backup")
 
-
+"""
 if __name__ == "__main__":
     print("\n" + "="*55)
-    print("  SambaPME Portal v7")
+    print("  Samba Portal")
     print(f"  Serveur : {os.getenv('SAMBA_SERVER','192.168.0.119')}")
     print(f"  Admin   : {os.getenv('SSH_USER','?')}@{os.getenv('SSH_HOST','?')}")
     print("  URL     : http://localhost:5000")
     print("="*55 + "\n")
     app.run(host="0.0.0.0", port=5000,
             debug=os.getenv("FLASK_DEBUG", "False") == "True")
+"""

@@ -1,0 +1,6 @@
+# Samba web portal
+flask>=3.0
+flask-session>=0.8
+python-dotenv>=1.0
+smbprotocol>=1.12
+paramiko>=3.4

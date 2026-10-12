@@ -1,0 +1,17 @@
+---
+version: "3"
+
+services:
+  web:
+    build: .                   # construit l'image à partir du Dockerfile local
+    ports:
+      - "5000:5000"            # mappe le port 5000 de l'hôte sur le conteneur
+    environment:
+      - REDIS_HOST=redis       # nom du service Redis (réseau Docker interne)
+    depends_on:
+      - redis                  # attend que le service redis soit prêt (sans garantie applicative)
+
+  redis:
+    image: docker.io/library/redis:alpine        # image officielle Redis légère
+    ports:
+      - "6379:6379"            # utile pour déboguer, pas obligatoire

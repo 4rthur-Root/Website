@@ -19,10 +19,10 @@
 set -e  # Stop immediately on any error
 
 # Configuration
-SERVER_IP="${SERVER_IP:-10.0.1.10}"
+SERVER_IP="${SERVER_IP:-192.168.122.X}"
 SSH_USER="${SSH_USER:-vagrant}"
 SSH_PASSWORD="${SSH_PASSWORD:-vagrant}"
-SAMBA_PASSWORD="${SAMBA_PASSWORD:-Samba2024!}"
+SAMBA_PASSWORD="${SAMBA_PASSWORD:-Samba2026!}"
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -58,10 +58,6 @@ log_info "Testing SSH connection..."
 ssh_run "echo 'SSH OK'" >/dev/null 2>&1 || log_error "Cannot connect to $SERVER_IP -- is the VM running?"
 log_ok "SSH connection established"
 
-# 0. Copying relevant files to the machine
-ssh_run "mkdir ~/Samba/"
-scp 1* rsyslog.conf smb.conf $SSH_USER@$SERVER_IP:~/Samba/
-
 # 1. System update
 log_info "Updating system..."
 ssh_run "echo '$SSH_PASSWORD' | sudo -S apt-get update -qq 2>/dev/null"
@@ -75,7 +71,6 @@ ssh_run "echo '$SSH_PASSWORD' | sudo -S apt-get install -y \
     fail2ban \
     cron \
     rsync \
-    ufw \
     -qq 2>/dev/null"
 log_ok "Packages installed"
 
@@ -106,7 +101,7 @@ for username in "${!USER_GROUPS[@]}"; do
     # Create user if it doesn't exist
     # User does not need home directory
     ssh_run "id $username >/dev/null 2>&1 || \
-        echo '$SSH_PASSWORD' | sudo -S useradd -M -G $group -s /usr/sbin/nologinbash $username 2>/dev/null"
+        echo '$SSH_PASSWORD' | sudo -S useradd -M -G $group -s /usr/sbin/nologin $username 2>/dev/null"
 
     # Linux password
     ssh_run "echo '$SSH_PASSWORD' | sudo -S bash -c \"echo '$username:$SAMBA_PASSWORD' | chpasswd\" 2>/dev/null"
@@ -231,13 +226,6 @@ failregex = .*Authentication.*Account-Name: <HOST>.*NT_STATUS_WRONG_PASSWORD.*
 ignoreregex =
 F2BFILT"
 log_ok "Fail2ban configured"
-
-# Rsyslog configs 
-log_info "Setting rsyslog surveillance up ..."
-
-ssh_run "cp ~/Samba/10-samba-audit.conf /etc/rsyslog.d/"
-ssh_run "cp ~/Samba/rsyslog.conf /etc/"
-ssh_run "echo '$SSH_PASSWORD' | sudo -S systemctl restart rsyslog"
 
 # 8. Backup script
 log_info "Creating backup script..."
