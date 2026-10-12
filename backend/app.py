@@ -1,5 +1,7 @@
 """
 app.py 
+logique centrale du backend
+contient toute la logique partagée du frontend
 """
 
 import os
@@ -20,7 +22,7 @@ import samba_client as smb
 import admin_logic  as adm
 #import ueba_hook
 
-app = Flask(__name__, template_folder="frontend/templates", static_folder="frontend/static")
+app = Flask(__name__, template_folder="../frontend/templates", static_folder="../frontend/static")
 app.secret_key                  = os.getenv("FLASK_SECRET_KEY", "dev_key_change_me")
 app.config["SESSION_TYPE"]      = "filesystem"
 app.config["SESSION_FILE_DIR"]  = "/tmp/flask_sessions_samba"
@@ -413,7 +415,7 @@ def run_backup():
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#backup")
 
-"""
+
 if __name__ == "__main__":
     print("\n" + "="*55)
     print("  Samba Portal")
@@ -423,4 +425,3 @@ if __name__ == "__main__":
     print("="*55 + "\n")
     app.run(host="0.0.0.0", port=5000,
             debug=os.getenv("FLASK_DEBUG", "False") == "True")
-"""
