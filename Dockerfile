@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -6,7 +6,7 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Non root user
-RUN useradd --create-home appuser
+# RUN useradd --create-home appuser
 
 # Copy ONLY the dependency files
 COPY pyproject.toml uv.lock ./
@@ -19,8 +19,8 @@ COPY backend/ /app/backend/
 COPY frontend/ /app/frontend/
 COPY main.py .
 
-USER appuser
+# USER appuser
 
 EXPOSE 5000
 
-CMD ["uv", "run", "python", "main.py"]
+CMD ["/app/.venv/bin/python", "main.py"]
