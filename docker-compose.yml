@@ -2,13 +2,21 @@ services:
   web:
     build: .
     ports: ["5000:5000"]            # host:container
+    env_file:
+      - [.env]
     environment:
       SAMBA_SERVER: ${VM_IP:-10.0.1.10}   # la VM (systemd) :445
       SSH_HOST:      ${VM_IP:-10.0.1.10}   # la VM (systemd) :22
     volumes:
-      - admin-audit: /app/backend/audit.log          # bind mount pour les logs d'administrateur
-      - sessions: /tmp/flask_sessions_samba          # Sessions web
+      - admin-audit:/app/backend/audit.log          # bind mount pour les logs d'administrateur
+      - sessions:/tmp/flask_sessions_samba          # Sessions web
     restart: unless-stopped
+    healthcheck:  # Check health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"] # Built in python check
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   admin-audit:   

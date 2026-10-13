@@ -28,7 +28,7 @@ AUDIT_LOG = Path(__file__).parent / "audit.log"
 VALID_GROUPS = {"direction", "comptabilite", "rh", "technique"}
 
 # Comptes protégés -- impossibles à supprimer/modifier via l'interface
-PROTECTED_ACCOUNTS = {"root", "vboxuser", "admin", "samba", "nobody", "daemon"}
+PROTECTED_ACCOUNTS = {"root", "vagrant", "admin", "samba", "nobody", "daemon"}
 
 
 # Sudo sécurisé
@@ -141,13 +141,13 @@ def get_dashboard_data() -> dict:
             }
 
     except paramiko.AuthenticationException:
-        return {"ok": False, "error": "Authentification SSH refusée — vérifiez SSH_USER/SSH_PASSWORD dans .env"}
+        return {"ok": False, "error": "SSH Authentification refused - check values of SSH_USER/SSH_PASSWORD in .env"}
     except (paramiko.NoValidConnectionsError, OSError):
-        return {"ok": False, "error": f"Impossible de joindre {SSH_HOST}:{SSH_PORT} — VM éteinte ?"}
+        return {"ok": False, "error": f"It is impossible to access {SSH_HOST}:{SSH_PORT} - Is the server running ?"}
     except TimeoutError:
         return {"ok": False, "error": f"Timeout SSH ({SSH_TIMEOUT}s)"}
     except Exception as e:
-        return {"ok": False, "error": f"Erreur SSH : {str(e)}"}
+        return {"ok": False, "error": f"Error SSH : {str(e)}"}
 
 
 # Parseurs
@@ -264,7 +264,7 @@ def unban_ip(ip: str, actor: str = "admin") -> dict:
             if "1" in out or "OK" in out.upper():
                 audit(actor, "UNBAN_IP", ip)
                 return {"ok": True}
-            return {"ok": False, "error": f"Réponse inattendue : {out}"}
+            return {"ok": False, "error": f"Unexpected answer : {out}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -273,7 +273,7 @@ def unban_ip(ip: str, actor: str = "admin") -> dict:
 def _validate_username(username: str) -> str | None:
     """Retourne None si valide, sinon le message d'erreur."""
     if not re.match(r'^[a-z][a-z0-9_]{2,19}$', username):
-        return "Nom invalide (3-20 car., minuscules, chiffres, underscore)"
+        return "Valide name (3-20 car., lowercase, numbers, underscore)"
     return None
 
 
@@ -283,9 +283,9 @@ def add_user(username: str, group: str, password: str,
     if err:
         return {"ok": False, "error": err}
     if group not in VALID_GROUPS:
-        return {"ok": False, "error": f"Groupe invalide. Acceptés : {', '.join(VALID_GROUPS)}"}
+        return {"ok": False, "error": f"This group is not valid. Accepted ones : {', '.join(VALID_GROUPS)}"}
     if len(password) < 8:
-        return {"ok": False, "error": "Mot de passe trop court (min 8 caractères)"}
+        return {"ok": False, "error": "The new password is too short, you need at least 8 characters"}
 
     # Échappement de TOUTES les valeurs externes
     user_safe  = shlex.quote(username)
@@ -297,7 +297,7 @@ def add_user(username: str, group: str, password: str,
         with _ssh() as ssh:
             exists = _run(ssh, f"id {user_safe} 2>/dev/null")
             if exists and "uid=" in exists:
-                return {"ok": False, "error": f"L'utilisateur '{username}' existe déjà"}
+                return {"ok": False, "error": f"The user '{username}' already exists"}
 
             # 1. Créer l'utilisateur Linux
             out = _run(ssh, _sudo(f"useradd -m -G {group_safe} -s /bin/bash {user_safe} 2>&1"))
@@ -324,7 +324,7 @@ def add_user(username: str, group: str, password: str,
 
 def delete_user(username: str, actor: str = "admin") -> dict:
     if username in PROTECTED_ACCOUNTS:
-        return {"ok": False, "error": f"Compte protégé '{username}' -- suppression interdite"}
+        return {"ok": False, "error": f"Account protected '{username}' -- you can't deleted it."}
     err = _validate_username(username)
     if err:
         return {"ok": False, "error": err}
@@ -335,7 +335,7 @@ def delete_user(username: str, actor: str = "admin") -> dict:
         with _ssh() as ssh:
             exists = _run(ssh, f"id {user_safe} 2>/dev/null")
             if not exists or "uid=" not in exists:
-                return {"ok": False, "error": f"Utilisateur '{username}' introuvable"}
+                return {"ok": False, "error": f"User '{username}' not found"}
 
             out = _run(ssh, _sudo(f"smbpasswd -x {user_safe} 2>&1"))
             steps.append({"cmd": f"smbpasswd -x {username}", "out": out or "OK"})
@@ -358,12 +358,12 @@ def change_user_password(username: str, new_password: str,
     Modifie à la fois le mot de passe Linux (chpasswd) et Samba (smbpasswd).
     """
     if username in PROTECTED_ACCOUNTS:
-        return {"ok": False, "error": f"Compte protégé '{username}'"}
+        return {"ok": False, "error": f"Account protected '{username}'"}
     err = _validate_username(username)
     if err:
         return {"ok": False, "error": err}
     if len(new_password) < 8:
-        return {"ok": False, "error": "Mot de passe trop court (min 8 caractères)"}
+        return {"ok": False, "error": "The new password is too short, you need at least 8 characters"}
 
     user_safe = shlex.quote(username)
     pwd_safe  = shlex.quote(new_password)
@@ -397,7 +397,7 @@ def change_own_password(username: str, current_password: str,
     Vérifie d'abord l'ancien mot de passe via une vraie authentification SMB.
     """
     if len(new_password) < 8:
-        return {"ok": False, "error": "Nouveau mot de passe trop court (min 8 caractères)"}
+        return {"ok": False, "error": "The new password is too short, you need at least 8 characters"}
 
     # Vérification de l'ancien mot de passe via SMB (authentification réelle)
     import samba_client as smb
@@ -477,6 +477,6 @@ def test_ssh_auth() -> dict:
             whoami = _run(ssh, "whoami")
             return {"ok": True, "user": whoami}
     except paramiko.AuthenticationException:
-        return {"ok": False, "error": "Mot de passe SSH incorrect"}
+        return {"ok": False, "error": "SSH password incorrect"}
     except Exception as e:
-        return {"ok": False, "error": f"Connexion SSH impossible : {str(e)}"}
+        return {"ok": False, "error": f"SSH Connexion impossible : {str(e)}"}

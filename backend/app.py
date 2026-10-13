@@ -84,6 +84,11 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# Health check
+@app.route('/health')
+def health():
+    return {'status': 'ok'}, 200   
+
 # Authentication
 @app.route("/", methods=["GET", "POST"])
 def login():
@@ -102,7 +107,7 @@ def login():
             if result.get("ok"):
                 session.update({"username": "admin", "password": password,
                                 "group": "admin", "role": "admin"})
-                adm.audit("admin", "LOGIN", "admin", f"depuis {request.remote_addr}")
+                adm.audit("admin", "LOGIN", "admin", f"from {request.remote_addr}")
                 return redirect(url_for("admin_dashboard"))
             else:
                 error = result.get("error", "Administrator authentication failed.")
@@ -158,7 +163,7 @@ def portal():
         files      = files_data,
         smb_error  = smb_error,
         group_meta = GROUP_META,
-        server_ip  = os.getenv("SAMBA_SERVER", "192.168.0.119"),
+        server_ip  = os.getenv("SAMBA_SERVER", "10.0.1.10"),
     )
 
 
@@ -242,7 +247,7 @@ def preview(share, filename):
         return Response(stream_with_context(generator), mimetype=mime,
                         headers={"Content-Disposition": f'inline; filename="{filename}"'})
     except Exception as e:
-        flash(f"⛔ Preview impossible : {str(e)}", "error")
+        flash(f"⛔ Preview failed : {str(e)}", "error")
         return redirect(url_for("portal", share=share))
 
 
@@ -298,7 +303,7 @@ def admin_dashboard():
         username   = session["username"],
         data       = data,
         group_meta = GROUP_META,
-        server_ip  = os.getenv("SAMBA_SERVER", "192.168.0.119"),
+        server_ip  = os.getenv("SAMBA_SERVER", "10.0.1.10"),
     )
 
 
@@ -345,7 +350,7 @@ def add_user():
         return redirect(url_for("admin_dashboard") + "#users")
 
     result = adm.add_user(username, group, password, actor=session["username"])
-    flash(f"✅ User '{username}' created ins '{group}'." if result["ok"] else f"⛔ {result['error']}",
+    flash(f"✅ User '{username}' created in '{group}'." if result["ok"] else f"⛔ {result['error']}",
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#users")
 
@@ -376,7 +381,7 @@ def admin_change_password():
     confirm  = request.form.get("confirm_password", "")
 
     if new_pwd != confirm:
-        flash("⛔ Les mots de passe ne correspondent pas.", "error")
+        flash("⛔ The passwords do not match", "error")
         return redirect(url_for("admin_dashboard") + "#users")
 
     result = adm.change_user_password(username, new_pwd, actor=session["username"])
@@ -419,7 +424,7 @@ def run_backup():
 if __name__ == "__main__":
     print("\n" + "="*55)
     print("  Samba Portal")
-    print(f"  Serveur : {os.getenv('SAMBA_SERVER','192.168.0.119')}")
+    print(f"  Serveur : {os.getenv('SAMBA_SERVER','10.0.1.10')}")
     print(f"  Admin   : {os.getenv('SSH_USER','?')}@{os.getenv('SSH_HOST','?')}")
     print("  URL     : http://localhost:5000")
     print("="*55 + "\n")

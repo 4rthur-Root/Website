@@ -52,7 +52,7 @@
 
   <div class="admin-main">
     <div class="admin-header">
-      <h1 id="tab-title">📊 Vue d'ensemble</h1>
+      <h1 id="tab-title">📊 Overview</h1>
       <div class="admin-header-badges">
         {% if data.get('ok') %}
           <span class="badge-status green">🟢 smbd {{ data.smbd }}</span>
@@ -219,7 +219,7 @@
 
         <div class="admin-table-wrap" style="margin-bottom:20px">
           <div style="padding:10px 16px;background:var(--bg-elevated);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-secondary);font-family:var(--font-mono);letter-spacing:.8px">
-            🚫 IPS ACTUELLEMENT BANNIES
+            🚫  CURRENTLY BANNED IPs
           </div>
           {% if f2b.banned_details %}
           <table class="admin-table">
@@ -278,7 +278,7 @@
         <!-- Human-friendly parsed logs -->
         <div class="log-box" style="margin-bottom:16px">
           <div class="log-header">
-            🔐 Authentifications Samba
+            🔐  Samba Authentifications
             <span style="font-size:10px;color:var(--text-muted);font-weight:400">
               🟢 Success &nbsp; 🔴 Failure &nbsp; 🟡 Warning
             </span>
@@ -333,7 +333,7 @@
       <div id="tab-users" class="tab-section">
         <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:20px">
           <div>
-            <h3 style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;margin-bottom:12px;text-transform:uppercase">Comptes Samba actifs</h3>
+            <h3 style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;margin-bottom:12px;text-transform:uppercase">Active Samba accounts</h3>
             <div class="admin-table-wrap">
               {% if data.samba_users %}
               <table class="admin-table">

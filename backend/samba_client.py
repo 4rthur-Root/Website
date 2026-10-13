@@ -17,7 +17,7 @@ from smbprotocol.open import (
 )
 from smbprotocol import exceptions as smb_exc
 
-SAMBA_SERVER = os.getenv("SAMBA_SERVER", "192.168.0.119")
+SAMBA_SERVER = os.getenv("SAMBA_SERVER", "10.0.1.10")
 SAMBA_DOMAIN = os.getenv("SAMBA_DOMAIN", "WORKGROUP")
 CHUNK_SIZE   = 65536  # 64 Ko
 
@@ -54,7 +54,7 @@ def _filetime_to_str(ft: int) -> str:
         dt = datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=ft // 10)
         return dt.strftime("%d/%m/%Y %H:%M")
     except Exception:
-        return "—"
+        return "-"
 
 
 # Auth
@@ -134,7 +134,7 @@ def list_files(share: str, username: str, password: str) -> dict:
 
             files.append({
                 "name":    name,
-                "size":    _format_size(size_val) if not is_dir else "—",
+                "size":    _format_size(size_val) if not is_dir else "-",
                 "date":    _filetime_to_str(mtime),
                 "is_dir":  is_dir,
                 "ext":     ext,
@@ -150,14 +150,14 @@ def list_files(share: str, username: str, password: str) -> dict:
         return {"ok": True, "files": files}
 
     except smb_exc.SMBAuthenticationError:
-        return {"ok": False, "error": "NT_STATUS_LOGON_FAILURE — identifiants incorrects"}
+        return {"ok": False, "error": "NT_STATUS_LOGON_FAILURE - identifiants incorrects"}
     except smb_exc.SMBException as e:
         s = str(e)
         if "ACCESS_DENIED" in s:
-            return {"ok": False, "error": "NT_STATUS_ACCESS_DENIED — permissions insuffisantes"}
+            return {"ok": False, "error": "NT_STATUS_ACCESS_DENIED - permissions insuffisantes"}
         return {"ok": False, "error": f"Erreur SMB : {s}"}
     except Exception as e:
-        return {"ok": False, "error": f"Connexion impossible à {SAMBA_SERVER} : {str(e)}"}
+        return {"ok": False, "error": f"Can't connect to {SAMBA_SERVER} : {str(e)}"}
 
 
 # Upload
@@ -302,7 +302,7 @@ def read_text_file(share: str, filename: str,
             data   += chunk
             offset += len(chunk)
             if offset >= max_bytes:
-                data += "\n\n[... fichier tronqué à 1 Mo ...]"
+                data += "\n\n[... file truncated at 1 Mo ...]"
                 break
 
         file_open.close()
@@ -341,7 +341,7 @@ def delete_file(share: str, filename: str,
     except smb_exc.SMBException as e:
         s = str(e)
         if "ACCESS_DENIED" in s:
-            return {"ok": False, "error": "NT_STATUS_ACCESS_DENIED — vous n'êtes pas propriétaire"}
+            return {"ok": False, "error": "NT_STATUS_ACCESS_DENIED - you are not the owner of this file"}
         return {"ok": False, "error": f"Erreur SMB : {s}"}
     except Exception as e:
         return {"ok": False, "error": f"Suppression impossible : {str(e)}"}
