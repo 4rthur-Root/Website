@@ -13,6 +13,7 @@ COPY pyproject.toml uv.lock ./
 
 # Install exact versions from lockfile
 RUN uv sync --frozen --no-dev --no-install-project
+RUN touch /app/backend/audit.log
 
 # Copy application code
 COPY backend/ /app/backend/

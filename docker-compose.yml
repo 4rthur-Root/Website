@@ -3,7 +3,7 @@ services:
     build: .
     ports: ["5000:5000"]            # host:container
     env_file:
-      - [.env]
+      - .env
     environment:
       SAMBA_SERVER: ${VM_IP:-10.0.1.10}   # la VM (systemd) :445
       SSH_HOST:      ${VM_IP:-10.0.1.10}   # la VM (systemd) :22

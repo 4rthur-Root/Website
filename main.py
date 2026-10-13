@@ -6,7 +6,7 @@ Il lance le frontend web sur le port 5000.
 """
 
 import os
-from backend import app
+from backend.app import app
 
 if __name__ == "__main__":
     print("\n" + "="*55)
