@@ -302,7 +302,7 @@ def read_text_file(share: str, filename: str,
             data   += chunk
             offset += len(chunk)
             if offset >= max_bytes:
-                data += b"\n\n[... fichier tronqué à 1 Mo ...]"
+                data += "\n\n[... fichier tronqué à 1 Mo ...]"
                 break
 
         file_open.close()

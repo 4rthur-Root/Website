@@ -15,9 +15,9 @@ import paramiko
 from contextlib import contextmanager
 from pathlib import Path
 
-SSH_HOST     = os.getenv("SSH_HOST",     "192.168.1.120")
-SSH_USER     = os.getenv("SSH_USER",     "vboxuser")
-SSH_PASSWORD = os.getenv("SSH_PASSWORD", "")
+SSH_HOST     = os.getenv("SSH_HOST",     "10.0.1.10")
+SSH_USER     = os.getenv("SSH_USER",     "vagrant")
+SSH_PASSWORD = os.getenv("SSH_PASSWORD", "vagrant")
 SSH_PORT     = int(os.getenv("SSH_PORT", "22"))
 SSH_TIMEOUT  = 8
 

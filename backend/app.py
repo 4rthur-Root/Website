@@ -18,8 +18,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import samba_client as smb
-import admin_logic  as adm
+from . import samba_client as smb
+from . import admin_logic  as adm
 #import ueba_hook
 
 app = Flask(__name__, template_folder="../frontend/templates", static_folder="../frontend/static")
@@ -124,7 +124,7 @@ def logout():
     if session.get("role") == "admin":
         adm.audit(username, "LOGOUT", username)
     session.clear()
-    flash("Vous avez été déconnecté.", "info")
+    flash("You have been logged out.", "info")
     return redirect(url_for("login"))
 
 
@@ -213,7 +213,7 @@ def stream_download(share, filename):
 
         return Response(stream_with_context(generator), mimetype=mime, headers=headers)
     except Exception as e:
-        flash(f"⛔ Erreur téléchargement : {str(e)}", "error")
+        flash(f"⛔ Download error : {str(e)}", "error")
         return redirect(url_for("portal", share=share))
 
 
@@ -242,7 +242,7 @@ def preview(share, filename):
         return Response(stream_with_context(generator), mimetype=mime,
                         headers={"Content-Disposition": f'inline; filename="{filename}"'})
     except Exception as e:
-        flash(f"⛔ Prévisualisation impossible : {str(e)}", "error")
+        flash(f"⛔ Preview impossible : {str(e)}", "error")
         return redirect(url_for("portal", share=share))
 
 
@@ -256,7 +256,7 @@ def delete(share, filename):
 
     result = smb.delete_file(share, filename,
                              session["username"], session["password"])
-    flash(f"🗑️ '{filename}' supprimé." if result["ok"] else f"⛔ {result['error']}",
+    flash(f"🗑️ '{filename}' deleted." if result["ok"] else f"⛔ {result['error']}",
           "success" if result["ok"] else "error")
     return redirect(url_for("portal", share=share))
 
@@ -341,11 +341,11 @@ def add_user():
     confirm  = request.form.get("confirm", "")
 
     if password != confirm:
-        flash("⛔ Les mots de passe ne correspondent pas.", "error")
+        flash("⛔ The passwords you entered don't match", "error")
         return redirect(url_for("admin_dashboard") + "#users")
 
     result = adm.add_user(username, group, password, actor=session["username"])
-    flash(f"✅ Utilisateur '{username}' créé dans '{group}'." if result["ok"] else f"⛔ {result['error']}",
+    flash(f"✅ User '{username}' created ins '{group}'." if result["ok"] else f"⛔ {result['error']}",
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#users")
 
@@ -362,7 +362,7 @@ def delete_user():
         return redirect(url_for("admin_dashboard") + "#users")
 
     result = adm.delete_user(username, actor=session["username"])
-    flash(f"✅ '{username}' supprimé." if result["ok"] else f"⛔ {result['error']}",
+    flash(f"✅ '{username}' deleted." if result["ok"] else f"⛔ {result['error']}",
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#users")
 
@@ -380,7 +380,7 @@ def admin_change_password():
         return redirect(url_for("admin_dashboard") + "#users")
 
     result = adm.change_user_password(username, new_pwd, actor=session["username"])
-    flash(f"✅ Mot de passe de '{username}' modifié." if result["ok"] else f"⛔ {result['error']}",
+    flash(f"✅ Password of user '{username}' modified" if result["ok"] else f"⛔ {result['error']}",
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#users")
 
@@ -415,7 +415,7 @@ def run_backup():
           "success" if result["ok"] else "error")
     return redirect(url_for("admin_dashboard") + "#backup")
 
-
+"""
 if __name__ == "__main__":
     print("\n" + "="*55)
     print("  Samba Portal")
@@ -425,3 +425,4 @@ if __name__ == "__main__":
     print("="*55 + "\n")
     app.run(host="0.0.0.0", port=5000,
             debug=os.getenv("FLASK_DEBUG", "False") == "True")
+"""
