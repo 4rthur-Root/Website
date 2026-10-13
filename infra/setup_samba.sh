@@ -19,7 +19,7 @@
 set -e  # Stop immediately on any error
 
 # Configuration
-SERVER_IP="${SERVER_IP:-192.168.122.X}"
+SERVER_IP="${SERVER_IP:-10.0.1.10}"
 SSH_USER="${SSH_USER:-vagrant}"
 SSH_PASSWORD="${SSH_PASSWORD:-vagrant}"
 SAMBA_PASSWORD="${SAMBA_PASSWORD:-Samba2026!}"
