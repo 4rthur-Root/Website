@@ -1,313 +1,197 @@
-# Roadmap — SambaPME (refonte pour demande de stage)
+# Roadmap — SambaPME
 
-> Objectif : livrer en **4 jours** un repo GitHub public, reproductible (docker-compose),
-> avec une UI soignée, une page de login en React (bonus), et un README vendeur.
-
----
-
-## 1. Contexte
-
-Le projet est un portail web (« SambaPME v7 ») qui proxifie un serveur de fichiers
-**Samba** : Flask en front, `smbprotocol` pour les opérations fichiers, `paramiko` (SSH)
-pour l'administration, `audit.log` pour la traçabilité.
-
-La base est **fonctionnelle et déjà bien sécurisée** (SMBv1 désactivé, `smb encrypt = required`,
-fail2ban, `shlex.quote` sur toutes les valeurs externes, sessions server-side).
-On ne réécrit **rien** : on corrige, on stabilise, on conteneurise le web et on rend le tout démontrable.
-
-**Hors périmètre :** le pipeline UEBA (`ueba_hook.py`, `model/ueba/daemon.py`) est **laissé tel
-quel, zéro budget**. Il ne gêne pas et renforce le fil rouge sécurité.
+> Refonte « portfolio » d'un portail web pour serveur Samba, pour une demande de stage dev.
+> But : **repo GitHub public, propre et lançable** (VM Samba en systemd + web dockerisé) + README vendeur.
+>
+> Lecture **fichier par fichier**. Légende : `[FAIT]` · `[BLOQUANT]` (empêche de lancer) · `[À FAIRE]` · `[OPTION]`.
 
 ---
 
-## 2. Décisions verrouillées
+## Décisions verrouillées
 
-1. **Samba reste en service systemd sur la VM** — aucun conteneur Samba.
-   Le code actuel fonctionne **tel quel** : `systemctl`, `fail2ban`, `smbstatus`, `pdbedit`,
-   statistiques hôte… rien à adapter. Le fil rouge sécurité reste **réel** (vraies IP, vraies bans).
-2. **Seul le web (Flask) est dockerisé** — service unique `docker-compose`, servi par **gunicorn seul**.
-3. **nginx non implémenté** pour la démo (upgrade production documenté au README).
-4. **React** : seule la **page de login** est refaite (Vite + endpoint JSON) — bonus contrôlé, sautable.
-5. **Vagrant conservé** : la VM provisionne Docker ; `setup_samba.sh` se lance depuis l'hôte
-   (ou manuellement), IP fixe connue = pas de souci de découverte.
-6. **Langue de l'UI** : anglais (cible recruteur). On harmonise les messages FR/EN.
+- **Samba reste en systemd sur la VM** (pas de conteneur) → admin, fail2ban, backups réels.
+- **Seul le web (Flask) est dockerisé** → service unique `docker-compose`.
+- **Pas de gunicorn** : on garde le **serveur Flask intégré** (`python main.py`). Pour la concurrence (upload / streaming par chunks), activer `threaded=True`.
+- **Pas de nginx** (documenté au README comme upgrade prod).
+- **React** : uniquement la **page de login** (bonus, sautable).
+- **UI en anglais** (cible recruteur).
+- VM `10.0.1.10`, creds SSH `vagrant/vagrant`, mot de passe Samba démo **`Samba2026!`**.
 
----
-
-## 3. Architecture cible
+## Architecture cible
 
 ```
-VM Ubuntu 24.04  (IP fixe ex. 10.0.1.10 — définie par Vagrant)
-│
-├── systemd (hôte) :
-│     smbd · nmbd · fail2ban · rsyslog · sshd · cron (backup)
-│     └── /srv/samba (partages) · /var/log/samba · /srv/backup
-│
-└── docker compose (repo cloné dans la VM)
-      └── web : Flask + gunicorn → port 5000 publié
-            ├── SAMBA_SERVER=10.0.1.10 :445   (SMB  → systemd)
-            └── SSH_HOST=10.0.1.10     :22    (admin → systemd)
+        Navigateur (employé / admin)
+                 │  HTTP :5000
+                 ▼
+┌───────────────────────────────────────────────────────────┐
+│  VM Ubuntu 24.04 — 10.0.1.10                              │
+│                                                           │
+│  ┌───────────────────────────┐                            │
+│  │ Docker : web (Flask)      │                            │
+│  │  routes · sessions · audit│                            │
+│  └───────┬───────────┬───────┘                            │
+│          │ SMB :445   │ SSH :22                           │
+│          ▼            ▼                                   │
+│     smbd/nmbd       sshd          ← systemd (hôte)        │
+│                                                           │
+│  fail2ban · rsyslog · cron (backup) · /srv/samba          │
+└───────────────────────────────────────────────────────────┘
 ```
 
-- **Flux employés** : navigateur → `web:5000` → SMB (`SAMBA_SERVER:445`).
-- **Flux admin** : navigateur → `web:5000` → SSH (`SSH_HOST:22`) → commandes sur l'hôte.
-- `systemctl`, fail2ban, stats : toutes les commandes admin s'exécutent **sur la vraie VM**
-  → rien n'est faussé ni à adapter.
+---
+
+## État git (au moment de l'analyse)
+
+- Commits existants : `cc43fdc First commit`, `12a9abb Start cleaning`, `de3f1ed cleaning v1 ok`.
+- **Non commités** : `Dockerfile`, `docker-compose.yml`, `backend/app.py`, `backend/samba_client.py`, `backend/admin_logic.py`, `.gitignore`, `.dockerignore`, `infra/Vagrantfile`, `infra/setup_samba.sh`, `main.py`.
+- **Untracked à committer** : `pyproject.toml`, `uv.lock`, `Makefile`, `tools.sh` → **sinon `git clone` + `docker build` casse** (le Dockerfile les copie).
+- Déjà réglé : `test` et `backend/__pycache__/*.pyc` retirés de l'index ✔.
+
+## Bloquants (dans l'ordre)
+
+1. `docker-compose.yml` : syntaxe `volumes` invalide + pas d'`env_file` → l'admin ne reçoit pas ses identifiants.
+2. `.env.example` : **vide (0 octet)**.
+3. `Dockerfile` : `USER appuser` + volumes root → sessions & audit inécrivables.
+4. `pyproject.toml` : `[project.scripts]` pointe sur un module inexistant.
+5. `pyproject.toml` / `uv.lock` / `Makefile` / `tools.sh` non commités.
 
 ---
 
-## 4. Incohérences à corriger (inventaire de départ)
+## Fichier par fichier
 
-### 4.1 Bug bloquant — direction des templates
-- `backend/app.py:23`
-  `Flask(__name__, template_folder="website/templates", static_folder="website/static")`
-- Le dossier réel est `frontend/`, et le root de l'app est `backend/`.
-- Correctif : `template_folder="../frontend/templates"`, `static_folder="../frontend/static"`.
+### `docker-compose.yml` — `[BLOQUANT]`
+- `[FAIT]` `environment` en mapping, `depends_on` fantôme retiré.
+- `[ ]` Corriger les volumes (la forme `- clé: /chemin` est un **mapping YAML invalide**, il faut `clé:/chemin` sans espace) :
+  ```yaml
+      volumes:
+        - admin-audit:/app/backend/audit.log
+        - sessions:/tmp/flask_sessions_samba
+  ```
+- `[ ]` Ajouter `env_file: [.env]` → sinon seuls `SAMBA_SERVER`/`SSH_HOST` arrivent dans le conteneur ; **`SSH_USER`/`SSH_PASSWORD`/`SSH_PORT`/`SAMBA_DOMAIN`/`FLASK_SECRET_KEY` manquent → login admin KO**.
+- `[OPTION]` `healthcheck` (GET `/`).
 
-### 4.2 IP / identifiants incohérents
-- `backend/samba_client.py:20` : défaut `SAMBA_SERVER = "192.168.0.119"`.
-- `backend/admin_logic.py:18-20` : défauts `SSH_HOST="192.168.1.120"`, `SSH_USER="vboxuser"`.
-- `infra/Vagrantfile:11-17` : VM sur `10.0.1.10`, creds `vagrant/vagrant`.
-- Correctif : tous ces défauts deviennent des var d'env, défauts cohérents avec la VM
-  (`10.0.1.10`, `vagrant`) — plus aucun IP en dur contradictoire.
+### `.env.example` — `[BLOQUANT]`
+- Le `.env` réel est **correct** (9 clés présentes, gitignoré) ✔. Il faut le **mirror** dans `.env.example` :
+  ```ini
+  VM_IP=10.0.1.10
+  SAMBA_SERVER=10.0.1.10
+  SAMBA_DOMAIN=WORKGROUP
+  SSH_HOST=10.0.1.10
+  SSH_USER=vagrant
+  SSH_PASSWORD=vagrant
+  SSH_PORT=22
+  FLASK_SECRET_KEY=change_me
+  FLASK_DEBUG=False
+  ```
 
-### 4.3 Fichiers manquants
-- **`requirements.txt`** (backend) : pinner les versions qui tournent déjà
-  (`flask`, `flask-session`, `paramiko`, `smbprotocol`, `python-dotenv`, `gunicorn`).
-- **`.env.example`** (root) : modèle pour `.env` (voir §7).
-- **`.gitignore`** (root) : `.env`, `venv/`, `__pycache__/`, `*.pyc`, `node_modules/`,
-  `frontend-react/dist/`, `.DS_Store`, `backend/audit.log`, `.vagrant/`.
-- **`infra/setup_samba.sh`** référence des fichiers **jamais livrés** :
-  - ligne ~63 : `scp 1* rsyslog.conf smb.conf ...` → `1*` (norme sécu) + `rsyslog.conf` + `smb.conf` absents ;
-  - lignes ~238-240 : `cp ... 10-samba-audit.conf /etc/rsyslog.d/` et `cp rsyslog.conf /etc/`.
-  - Décision : soit **générer ces fichiers** dans `infra/`, soit **retirer ces étapes**
-    (le `smb.conf` est de toute façon écrit inline plus bas par heredoc).
+### `Dockerfile` — `[BLOQUANT]`
+- `[FAIT]` base `python:3.14-slim` alignée sur `requires-python >=3.14` ; install via `uv` + lockfile.
+- `[ ]` **Permissions** : `USER appuser` + volumes nommés (créés `root:root`) →
+  - Flask-Session ne peut pas écrire `/tmp/flask_sessions_samba` → **sessions mortes (login en boucle)** ;
+  - le volume monté sur `/app/backend/audit.log` crée un **dossier** (le fichier n'existe pas dans l'image) → **audit KO**.
+  - **Option rapide (démo)** : retirer `USER appuser` (tourner en root).
+  - **Option propre** : entrypoint qui `chown` les chemins montés + monter l'audit sur un **dossier** (`/app/backend/audit`) et adapter `AUDIT_LOG` dans `admin_logic.py`.
+- `[ ]` `CMD` : lancer directement le python du venv pour éviter le resync `uv` au runtime → `CMD ["/app/.venv/bin/python", "main.py"]`.
+- `[OPTION]` `HEALTHCHECK` ; retirer `AS builder` (pas de 2ᵉ stage).
 
-### 4.4 UI FR/EN mélangée → uniformiser en anglais
-- `frontend/templates/admin.html` : « Vue d'ensemble », « Authentifications Samba »,
-  « IPS ACTUELLEMENT BANNIES », « Comptes Samba actifs », etc.
-- `frontend/static/js/admin.js` : `TITLES` anglais → couper/interdire le FR mixte.
-- `backend/app.py` : flashs français (« supprimé », « Prévisualisation impossible »,
-  « Les mots de passe ne correspondent pas »…) → tous en anglais.
-- `frontend/templates/portal.html` + `preview_text.html` : flashs/chaînes FR à passer en anglais.
+### `main.py`
+- `[FAIT]` point d'entrée ; lit l'environnement.
+- `[ ]` `app.run(..., threaded=True)` → indispensable pour ne pas bloquer upload/streaming **sans gunicorn**.
+- `[ ]` défaut `SAMBA_SERVER` l.15 : `192.168.0.119` → `10.0.1.10`.
+- `[OPTION]` envelopper `app.run()` dans `if __name__ == "__main__":`.
 
-### 4.5 Git
-- Le seul commit initial ne contient que `README.md` (1 ligne) ; **tout le code est untracked**.
-- Correctif : commits atomiques proprement rédigés (voir §9).
+### `backend/app.py`
+- `[FAIT]` chemins `template_folder`/`static_folder` corrigés ; imports relatifs ; UEBA commenté ; majeurité des flashs en anglais.
+- `[ ]` défauts `192.168.0.119` → `10.0.1.10` (l. 161, 301, 422).
+- `[ ]` Résidus FR / typos :
+  - l.105 `f"depuis {request.remote_addr}"` → `f"from ..."` ;
+  - l.245 `"Preview impossible :"` → `"Preview failed: "` ;
+  - l.348 `"created ins '{group}'"` → `"created in '{group}'"` ;
+  - l.379 `"Les mots de passe ne correspondent pas."` → EN.
+- `[OPTION]` supprimer le bloc commenté l.418-428.
 
----
+### `backend/samba_client.py`
+- `[ ]` défaut l.20 `SAMBA_SERVER = "192.168.0.119"` → `"10.0.1.10"`.
+- `[ ]` messages FR → EN : l.160, l.305, l.344.
 
-## 5. Jour 1 — Corriger & stabiliser le code
+### `backend/admin_logic.py`
+- `[FAIT]` `SSH_HOST` par défaut = `10.0.1.10` ✔.
+- `[ ]` messages FR → EN : l.144, 146, 148, 267, 286, 288, 300, 327, 361, 366, 400, 480, 482.
+- `[ ]` **Quirk sécurité** : `test_ssh_auth()` (l.474) ignore le mot de passe saisi → le champ « password » du login admin est cosmétique (l'auth utilise `SSH_USER/SSH_PASSWORD`). À corriger ou assumer/documenter.
+- `[OPTION]` retirer `vboxuser` de `PROTECTED_ACCOUNTS` (l.31).
 
-**Objectif : l'app tourne en venv (mode host) sans erreur, et le repo est propre.**
+### `backend/ueba_hook.py`
+- `[FAIT]` hors périmètre, non importé. On le garde (traçabilité).
 
-- [ ] Fixer les chemins templates/static (`backend/app.py`) → §4.1.
-- [ ] Créer `requirements.txt` (backend) et valider un `pip install -r` propre.
-- [ ] Créer `.env.example` + `.env` (non commité) + `.gitignore` → §4.3, §7.
-- [ ] Réconcilier les IP : tout lire depuis l'environnement, défauts = VM (`10.0.1.10`) → §4.2.
-- [ ] Nettoyer `infra/setup_samba.sh` : typo `-s /usr/sbin/nologinbash` → `/usr/sbin/nologin` ;
-      trancher §4.3 (générer ou retirer les fichiers rsyslog manquants).
-- [ ] Lancer l'app en venv, **avec la VM Samba joignable** :
-      tester login employé, login admin, listage, upload, téléchargement, preview, delete,
-      chgt de mot de passe.
-  - Si la VM n'est pas dispo, tester au moins que l'app **démarre** et que toutes les
-    routes non-SMB répondent (login affiché, redirections, 403…).
-- [ ] Uniformiser les flashs et libellés UI en anglais → §4.4.
-- [ ] Commit propre : `fix(backend): corrige les chemins de templates + config env-driven`.
+### `frontend/templates/admin.html`
+- `[ ]` 4 libellés FR → EN : « Vue d'ensemble » → *Overview* ; « IPS ACTUELLEMENT BANNIES » → *CURRENTLY BANNED IPs* ; « Authentifications Samba » → *Samba authentications* ; « Comptes Samba actifs » → *Active Samba accounts*.
 
-**DoD Jour 1** : `python app.py` démarre sans crash, aucun IP en dur incohérent, git status propre
-après commit.
+### `frontend/static/js/*` + `portal.html` / `preview_text.html` / `login.html`
+- `[FAIT]` `TITLES` de `admin.js` déjà en anglais ; pas d'accents FR résiduels.
+- Relecture rapide : seul `admin.html` portait du FR.
 
----
+### `.gitignore`
+- `[FAIT]` `.env`, `audit.log`, `__pycache__/`, `.python-version`, `.venv`, `test`.
+- `[OPTION]` ajouter `*.pyc`, `.ruff_cache/`, `.vagrant/`, `node_modules/`, `frontend-react/dist/`.
+- Note : `.python-version` ignoré = OK (la version est aussi pinnée par `pyproject.toml`).
 
-## 6. Jour 2 — Docker du web (gunicorn) + provisioning VM
+### `.dockerignore`
+- `[ ]` `ueba_hook.py` → **`backend/ueba_hook.py`** (chemin actuel faux).
+- `[ ]` ajouter `.env`, `.git/`, `.venv/`, `infra/`, `roadmap.md`, `Makefile`, `tools.sh`.
 
-**Objectif : `docker compose up` sur la VM sert l'app à `:5000`, Samba en systemd derrière.**
+### `pyproject.toml`
+- `[FAIT]` description, deps, `requires-python >=3.14`.
+- `[ ]` `[project.scripts] website = "website:main"` → **module inexistant** : supprimer le bloc.
 
-### 6.1 Choix de serving (décidé)
-- **Gunicorn seul** dans le conteneur web — suffisant pour la démo :
-  - `--worker-class gthread --threads 4` : nécessaire pour le **streaming 64 Ko**
-    (download/preview) et les uploads sans bloquer les workers.
-  - Pas de nginx : rien à configurer côté limites de body (piège du
-    `client_max_body_size` 1 Mo par défaut — à éviter pour des uploads de 500 Mo).
-- nginx → documenté au README comme « upgrade production » (port 80, TLS, statiques, gzip),
-  **non implémenté**.
+### `requirements.txt`
+- `[ ]` redondant avec `pyproject.toml`/`uv.lock` (le Dockerfile utilise `uv`) → supprimer.
 
-### 6.2 Dockerfile web (`backend/Dockerfile`)
-- `FROM python:3.12-slim`
-- copie `requirements.txt`, `pip install -r`
-- copie `backend/` + `frontend/` (respecter la résolution `../frontend/...`)
-- `WORKDIR /app/backend`
-- CMD : `gunicorn -w 2 --threads 4 --worker-class gthread -b 0.0.0.0:5000 app:app`
-- `HEALTHCHECK` : GET `/` (curl ou python).
-- **volumes (persistance)** :
-  - sessions Flask : `/tmp/flask_sessions_samba` → volume nommé (sinon déconnexion à chaque rebuild)
-  - `audit.log` : monter un volume **sur le fichier** `/app/backend/audit.log`
-    (ne PAS monter sur `/app/backend` entier, sinon on masque le code).
-- (J3) étape multi-stage ajoutée pour builder `frontend-react/dist` avec Node.
+### `Makefile`
+- `[FAIT]` `VAGRANT_CWD=infra` ; cibles `machine`/`destroy`/`ssh`/`status`/`infra`.
+- `[ ]` `.PHONY` liste des cibles inexistantes (`start/recreate/new/clean/help`) ; `help` vide.
+- `[OPTION]` cible `env` (`cp .env.example .env`) et `up` (`docker compose up -d --build` via `vagrant ssh`).
 
-### 6.3 `docker-compose.yml` (root) — service unique `web`
-```yaml
-services:
-  web:
-    build: ./backend
-    ports: ["5000:5000"]
-    env_file: .env
-    environment:
-      SAMBA_SERVER: ${VM_IP:-10.0.1.10}   # la VM (systemd) :445
-      SSH_HOST:      ${VM_IP:-10.0.1.10}   # la VM (systemd) :22
-    volumes:
-      - web-sessions:/tmp/flask_sessions_samba
-      - web-audit:/app/backend/audit.log
-    restart: unless-stopped
-    healthcheck: ...
-volumes:
-  web-sessions:
-  web-audit:
-```
-> Pas de dépendance entre conteneurs : Samba est un service hôte, pas un service compose.
+### `tools.sh` (hôte Fedora)
+- `[FAIT]` libvirt, vagrant, uv, repo HashiCorp.
+- `[ ]` ajouter **`sshpass`** (requis par `setup_samba.sh`, absent côté Fedora).
+- `[ ]` `vagrant-libvirt` n'est **pas** un paquet dnf → `vagrant plugin install vagrant-libvirt`.
 
-### 6.4 Provisioning VM
-- **Vagrantfile** : ajouter un provisioner shell qui installe `docker.io` +
-  `docker-compose-plugin` (et `usermod -aG docker` pour l'utilisateur). La VM garde
-  `10.0.1.10` (IP connue = celle de `.env`). La `synced_folder` existante peut
-  monter le repo dans la VM.
-- **`setup_samba.sh`** : lancé **depuis l'hôte** une fois la VM up :
-  `vagrant up` puis `./infra/setup_samba.sh` (sshpass géré par le script,
-  creds par défaut `vagrant/vagrant` cohérentes avec le Vagrantfile).
-  Identique sur une machine réelle uniquement en changeant `SERVER_IP`/creds.
-- **(option) `deploy.sh`** : étape « push → VM » : `git clone/pull`, `cp .env.example .env`,
-  `docker compose up -d --build`. À mettre en infra/ si le temps le permet.
+### `infra/Vagrantfile`
+- `[FAIT]` VM `10.0.1.10` ; Docker + compose installés ; `usermod -aG docker vagrant`.
+- `[ ]` `source: ".."` (l.21) copie **tout le repo** (`.venv`, `.git`…) → cibler un `source` propre ou exclure.
+- `[ ]` **Samba n'est pas provisionné** par Vagrant → il faut lancer `setup_samba.sh` (documenté dans le README, cible `make infra`).
+- `[ ]` Vérifier l'accès hôte→VM (`libvirt__forward_mode: "none"` + DHCP off = réseau host-only).
+- `[OPTION]` `lv.default_prefix = ""` à confirmer.
 
-### 6.5 Test e2e (sur la VM)
-1. Sur une VM propre : `git clone` → `cp .env.example .env` → `docker compose up -d --build`.
-2. Login employé (`direction1/Samba2024!`) → portal → listage.
-3. Upload + download + preview (texte + image) + delete.
-4. Login admin (creds SSH) → dashboard (**KPIs de la vraie VM**, via systemd) → créer/changer/supprimer un user.
-5. Unban IP (fail2ban **réel** sur l'hôte) + backup manuel.
-6. Tester depuis une machine tierce du réseau (accès `http://<IP-VM>:5000`).
-7. Redémarrer la VM → la stack se relance (`restart: unless-stopped`) et les données persistent.
+### `infra/setup_samba.sh`
+- `[FAIT]` `SERVER_IP=10.0.1.10` ; typo `nologin` corrigée ; étapes rsyslog/scp fantômes retirées.
+- `[ ]` l.44-47 : `sudo apt-get install sshpass` s'exécute sur l'**hôte Fedora** → échoue ; installer `sshpass` via `tools.sh` (dnf) ou rendre l'étape tolérante.
+- Note : `SAMBA_PASSWORD=Samba2026!` (l.25) → aligné avec les comptes démo.
 
-**Ligne de repli (si Docker web embêtant)** : gunicorn en service systemd direct sur la VM
-(comme Samba) — le code est strictement identique. Aucune perte.
+### `README.md`
+- `[FAIT]` v1 : contexte, stack, diagramme, flux, structure, comptes démo, sécurité.
+- `[ ]` Finaliser le quickstart (une fois docker/env réglés).
+- `[ ]` Insérer les **screenshots** (login dark/light, portal, admin) en fin.
 
-**DoD Jour 2** : sur VM vierge → app visible à `:5000`, e2e §6.5 au vert, Samba et fail2ban natifs.
+### React (bonus) — non commencé
+- `[ ]` `frontend-react/` (Vite) : login + endpoints `/api/login` · `/api/session` · `/api/logout`.
+- `[ ]` Login Jinja conservé en fallback ; Dockerfile multi-stage (Node → dist).
 
 ---
 
-## 7. Jour 3 — Login React (bonus) + polish UI
+## Ordre d'exécution conseillé
 
-### 7.1 Application React
-- Nouveau dossier `frontend-react/` : `npm create vite@latest . -- --template react`.
-- Composant Login : username/password, flèche affichage mdp, **comptes démo** (comme l'actuel
-  `login.html`), selecteur de thème dark/light (réutiliser les var CSS existantes).
-- Afficher les erreurs API (identifiants incorrects, serveur injoignable…).
+1. **Rendre lançable** : `.env.example` → `docker-compose.yml` → `Dockerfile` (permissions/CMD) → `pyproject.toml`.
+2. **Cohérence** : défauts IP + FR/typos (backend + `admin.html`).
+3. **Commit** : `pyproject.toml`, `uv.lock`, `Makefile`, `tools.sh` + le reste.
+4. **Infra** : `tools.sh` (`sshpass`), `Vagrantfile` (`source`), puis `make machine && make infra`.
+5. **README** finalisé + screenshots.
+6. **React** si le temps.
 
-### 7.2 Endpoints JSON côté Flask (nouveaux, dans une blueprint dédiée)
-- `POST /api/login`  {username, password} → `{ok, role, redirect}` (réutilise
-  `smb.test_auth` / `admin_logic.test_ssh_auth`, même mécanique qu'aujourd'hui).
-- `GET  /api/session` → `{logged_in, username, group, role}`.
-- `POST /api/logout` → vide la session.
-- Factoriser la fonction de connexion partagée avec la route `login()` existante.
+## Points de coupe (du plus sacrifiable au socle)
 
-### 7.3 Intégration
-- Le build (`npm run build`) produit `dist/`. Flask sert `dist/index.html` sur `/login`
-  (les assets via `send_from_directory`).
-- `login.html` conservé en fallback (route `/login-legacy` par exemple).
-- `frontend-react/dist/` au `.gitignore` (build au déploiement).
-- Mettre à jour le `Dockerfile web` en **multi-stage** (node LTS → builder → copie `dist/`
-  dans l'image finale python). Une seule image finale.
+1. **React** → login Jinja conservé.
+2. **Persistance** sessions/audit (volumes) → accepter la perte au rebuild (démo).
+3. Cible Makefile `up` + polish responsive.
 
-### 7.4 Polish des vues restantes (si temps)
-- **Responsive** : menu latéral portal/admin → version mobile.
-- **États vides / erreurs** : chaque état a un visuel propre (déjà partiellement le cas).
-- **Cohérence FR/EN** : terminer §4.4 + titres d'onglets admin.
-
-### 7.5 Coupe de sécurité jour 3
-- Si le temps déborde : **React sauté** → on garde le login Jinja et on finit le polish.
-  (Le bonus est conditionnel, le socle ne l'est pas.)
-
-**DoD Jour 3** : login (React ou fallback Jinja) fonctionne de bout en bout, UI cohérente
-et correcte en mobile + desktop.
-
----
-
-## 8. Jour 4 — Packaging & push GitHub
-
-### 8.1 README.md (réécriture complète)
-Sections prévues :
-- Pitch en 3 lignes + screenshot hero.
-- Schéma ASCII de l'architecture (dupliquer §3) : systemd Samba + web Docker.
-- **Quickstart** : `vagrant up` → `./infra/setup_samba.sh` → `git clone → cp .env.example .env →
-  docker compose up -d --build` (et la variante sans Vagrant).
-- Table des **comptes démo** (2 users/groupe + admin) & mot de passe par défaut.
-- Posture sécurité (SMBv1 off, SMB3 obligatoire, fail2ban **actif sur l'hôte**, `shlex.quote`,
-  session server-side, `audit.log`, backups) — le fil rouge SOC, **réel**.
-- **Serving** : gunicorn seul (démo) ; nginx en prod (port 80, TLS, statiques) + piège
-  `client_max_body_size`.
-- Stack technique & structure du repo.
-- Pistes d'amélioration (UEBA daemon, `hosts allow`, CI, tests, nginx/TLS).
-
-### 8.2 captures
-- `docs/` : login (dark + light), portal (liste de fichiers), admin (overview, users, fail2ban).
-- Référencées dans le README.
-
-### 8.3 Push
-- Repo public GitHub (nom type `sambapme`).
-- Branche `main`, tags `v1.0.0`.
-- `.env` jamais commité ; secrets démo uniquement via `.env.example`.
-- Message de commit cohérent avec la roadmap (jour par jour).
-
-### 8.4 Test final « from scratch »
-- VM vierge (ou `vagrant destroy && vagrant up`) :
-  `setup_samba.sh` → `git clone → cp .env.example .env → docker compose up -d --build`
-  → e2e complet.
-- Check final : rien ne dépend d'un état local de ta machine.
-
-**DoD Jour 4** : le repo est publié, le quickstart marche sur machine propre, README complet.
-
----
-
-## 9. Git — règles du dépôt
-
-- Commit par journée / par étape logique (messages conventionnels : `fix:`, `feat:`, `docs:`, `chore:`).
-- Ne **jamais** commiter : `.env`, `venv/`, `__pycache__/`, `node_modules/`, `frontend-react/dist/`, `audit.log`.
-- Garder l'historique **lisible** : un recruteur regarde les commits.
-
----
-
-## 10. Notes techniques / pièges connus
-
-- **Cible réseau du conteneur** : depuis le conteneur web, `127.0.0.1` désigne le **conteneur
-  lui-même** → SMB/SSH doivent pointer sur l'**IP de la VM** (`10.0.1.10`), pas loopback.
-  Si problème de connectivité bridge → alternative `network_mode: host` (mais IP préférée).
-- **ufw sur la VM** : si actif, ouvrir `5000` (web) et garder `445/139/22` pour les clients
-  SMB/SSH légitimes.
-- **Gunicorn** : `gthread --threads 4` indispensable pour le **streaming 64 Ko** et les uploads.
-- **Upload 500 Mo en RAM** : `app.py` fait `data = file.read()` → fichier entier en mémoire.
-  OK pour la démo mono-utilisateur ; le documenter dans le README.
-- **Sessions Flask filesystem** : `/tmp/flask_sessions_samba` éphémère → **volume nommé**
-  recommandé (sinon déconnecté à chaque rebuild).
-- **`audit.log`** : écrit à `backend/audit.log` dans le conteneur → monter un volume sur ce
-  **fichier** (et non sur `/app/backend` qui masquerait le code).
-- **fail2ban** : reste sur l'hôte en systemd → efficacité réelle (vraies IP, bans iptables hôte).
-  Le fil rouge sécurité est authentique, pas simulé.
-- **`FLASK_SECRET_KEY`** : fourni via `.env` ; jamais commiter un vrai secret.
-- **`MAX_CONTENT_LENGTH` 500 Mo** : conservé, à documenter.
-- **UEBA** : on ne touche pas. Les endpoints `/api/ueba/*` existent toujours, rien ne les
-  consomme, c'est OK.
-
----
-
-## 11. Points de coupe (ordre de sacrifice)
-
-| Priorité | Élément sacrifiable | Impact | Condition de coupe |
-|---|---|---|---|
-| 1 | Login React | Bonus perdu, login Jinja conservé | Fin de J3 dépassée sans UI stable |
-| 2 | Persistance sessions/audit (volumes) | Rebuild → déconnexions + audit vidé | Chronophage en J2 |
-| 3 | `deploy.sh` / synced_folder | Déploiement manuel simple documenté suffit | Temps manquant en J2 |
-
-> **Plus de risque conteneur Samba ni fail2ban** : ces deux points sont résolus nativement
-> par le choix systemd.
-
-Le socle non sacrifiable : **corrections §4 + web docker (ou gunicorn systemd) + README + push GitHub**.
+> Socle non négociable : **corrections `[BLOQUANT]` + `docker compose up` + README + push GitHub**.

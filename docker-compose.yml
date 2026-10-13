@@ -1,17 +1,15 @@
----
-version: "3"
-
 services:
   web:
-    build: .                   # construit l'image à partir du Dockerfile local
-    ports:
-      - "5000:5000"            # mappe le port 5000 de l'hôte sur le conteneur
+    build: .
+    ports: ["5000:5000"]            # host:container
     environment:
-      - REDIS_HOST=redis       # nom du service Redis (réseau Docker interne)
-    depends_on:
-      - redis                  # attend que le service redis soit prêt (sans garantie applicative)
+      SAMBA_SERVER: ${VM_IP:-10.0.1.10}   # la VM (systemd) :445
+      SSH_HOST:      ${VM_IP:-10.0.1.10}   # la VM (systemd) :22
+    volumes:
+      - admin-audit: /app/backend/audit.log          # bind mount pour les logs d'administrateur
+      - sessions: /tmp/flask_sessions_samba          # Sessions web
+    restart: unless-stopped
 
-  redis:
-    image: docker.io/library/redis:alpine        # image officielle Redis légère
-    ports:
-      - "6379:6379"            # utile pour déboguer, pas obligatoire
+volumes:
+  admin-audit:   
+  sessions:

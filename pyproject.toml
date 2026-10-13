@@ -1,0 +1,23 @@
+[project]
+name = "website"
+version = "0.1.0"
+description = "Frontend for Samba"
+readme = "README.md"
+authors = [
+    { name = "4rthur-Root", email = "kpodonougael@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "flask>=3.0",
+    "flask-session>=0.8",
+    "paramiko>=3.4",
+    "python-dotenv>=1.0",
+    "smbprotocol>=1.12",
+]
+
+[project.scripts]
+website = "website:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"

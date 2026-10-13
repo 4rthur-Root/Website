@@ -1,2 +1,8 @@
 .env
 audit.log
+
+__pycache__/
+.python-version
+.venv
+
+test
