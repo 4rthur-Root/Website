@@ -1,71 +1,74 @@
-# exp.md — Explications & justifications de conception
+# exp.md - Explanations & design rationale
 
-> Ce document répond à une question simple : **« pourquoi c'est fait comme ça ? »**.
-> Il complète le [`README.md`](./README.md) (qui décrit *quoi*) et la
-> [`roadmap.md`](./roadmap.md) (qui décrit *l'avancement*).
+<div align='center'>
+<a href="./exp.fr.md">Lire la version française</a>
+</div>
+
+> This document answers one simple question: **"why is it built this way?"**
+> It complements [`README.md`](./README.md) (which describes *what*) and the design
+> notes spread through the code.
 >
-> Il est écrit pour que tu puisses **expliquer chaque choix en entretien** —
-> y compris ceux qu'on ne pense pas à faire « sur le moment ».
+> It is written so you can **explain every choice in an interview** - including the
+> ones you don't think about "in the moment".
 
 ---
 
-## 1. Le modèle mental en une phrase
+## 1. The mental model in one sentence
 
-> Un navigateur parle à **une petite appli web (Flask)** qui, elle, ne stocke
-> **rien** : elle se contente de **relayer** vers **Samba** (pour les fichiers) et
-> vers **le serveur SSH de la VM** (pour l'administration).
+> A browser talks to **a small web app (Flask)** which stores **nothing** itself: it
+> simply **relays** to **Samba** (for files) and to **the VM's SSH server** (for
+> administration).
 
-Autrement dit : le portail est un **proxy intelligent et sécurisé** au-dessus d'une
-infra Linux existante. C'est pour ça qu'une grande partie du code ressemble à
-« je traduis un clic de l'utilisateur en une opération SMB ou une commande SSH ».
+In other words: the portal is a **smart, secured proxy** on top of an existing Linux
+infra. That is why a large part of the code looks like "I translate a user click into
+an SMB operation or a shell command".
 
 ---
 
-## 2. Qui parle à qui (et pourquoi l'IP et pas `localhost`)
+## 2. Who talks to whom (and why the IP and not `localhost`)
 
 ```mermaid
 flowchart LR
-    B["Navigateur"] -- "HTTP :5000" --> W["web (Flask)"]
+    B["Browser"] -- "HTTP :5000" --> W["web (Flask)"]
     W -- "SMB :445" --> S["smbd"]
     W -- "SSH :22" --> H["sshd"]
 ```
 
-Le piège classique : dans un **conteneur**, `127.0.0.1` désigne **le conteneur
-lui-même**, pas la VM. Comme Samba et SSH tournent sur **l'hôte** (la VM), le
-conteneur doit viser **l'IP de la VM** (`10.0.1.10`). D'où `SAMBA_SERVER` et
-`SSH_HOST` dans `.env`. *(L'alternative `network_mode: host` aurait aussi marché
-mais rend le compose moins portable.)*
+The classic trap: inside a **container**, `127.0.0.1` means **the container itself**,
+not the VM. Since Samba and SSH run on **the host** (the VM), the container must target
+**the VM's IP** (`10.0.1.10`). Hence `SAMBA_SERVER` and `SSH_HOST` in `.env`.
+*(The `network_mode: host` alternative would also work but makes the compose file less
+portable.)*
 
 ---
 
-## 3. Le découpage du code
+## 3. How the code is split
 
 ```
-main.py                  → point d'entrée : démarre le serveur
-backend/ (le package)
-  └─ app.py              → les routes web (le « contrôleur »)
-  └─ samba_client.py     → tout ce qui touche aux fichiers via SMB
-  └─ admin_logic.py      → tout ce qui touche à l'admin via SSH
-  └─ ueba_hook.py        → hors périmètre (non branché)
+main.py                  → entry point: starts the server
+backend/ (the package)
+  └─ app.py              → the web routes (the "controller")
+  └─ samba_client.py     → everything that touches files over SMB
+  └─ admin_logic.py      → everything that touches admin over SSH
+  └─ ueba_hook.py        → out of scope (not wired in)
 frontend/
-  └─ templates/*.html    → pages Jinja (rendues côté serveur)
-  └─ static/…            → CSS + JS servis tels quels au navigateur
+  └─ templates/*.html    → Jinja pages (rendered server-side)
+  └─ static/…            → CSS + JS served as-is to the browser
 ```
 
-**Pourquoi un package `backend/` avec imports relatifs ?**
+**Why a `backend/` package with relative imports?**
 
 ```python
 from . import samba_client as smb
 from . import admin_logic  as adm
 ```
 
-- **Séparation des responsabilités** : `app.py` ne sait pas *comment* on parle SMB ;
-  il appelle `smb.list_files(...)`. Si demain on change de librairie SMB, un seul
-  fichier bouge.
-- Les imports relatifs (`from . import`) indiquent que ces fichiers forment **un
-  paquet cohérent** (`backend`), pas des scripts isolés.
+- **Separation of concerns**: `app.py` does not know *how* SMB is spoken; it calls
+  `smb.list_files(...)`. If the SMB library changes tomorrow, only one file moves.
+- Relative imports (`from . import`) signal that these files form **one coherent
+  package** (`backend`), not isolated scripts.
 
-**Le piège `template_folder` / `static_folder` :**
+**The `template_folder` / `static_folder` trap:**
 
 ```python
 app = Flask(__name__,
@@ -73,21 +76,20 @@ app = Flask(__name__,
             static_folder="../frontend/static")
 ```
 
-Flask résout ces chemins **relativement au fichier `app.py`** (donc à
-`backend/`). Comme les templates sont dans `frontend/`, on remonte d'un cran
-(`../frontend/...`). Sans ça : erreur *« TemplateNotFound »* ou fichiers statiques
-introuvables. C'est le genre de bug qu'on ne voit qu'à l'exécution — d'où l'intérêt
-de démarrer l'app tôt.
+Flask resolves these paths **relative to `app.py`** (so relative to `backend/`). Since
+the templates live in `frontend/`, we go up one level (`../frontend/...`). Without
+this: a *"TemplateNotFound"* error, or static files that can't be found. It is the
+kind of bug you only see at runtime - which is why starting the app early matters.
 
-**Pourquoi `main.py` séparé ?** Pour que le package reste **importable** (utile pour
-les tests, pour `gunicorn`, pour un futur `flask run`) sans lancer le serveur à
-l'import. `main.py` ne démarre le serveur que sous `if __name__ == "__main__":`.
+**Why a separate `main.py`?** So the package stays **importable** (useful for tests,
+for `gunicorn`, for a future `flask run`) without starting the server on import.
+`main.py` only starts the server under `if __name__ == "__main__":`.
 
 ---
 
-## 4. Flask en 30 secondes
+## 4. Flask in 30 seconds
 
-Flask est un micro-framework : on associe une **URL** à une **fonction**.
+Flask is a micro-framework: you associate a **URL** with a **function**.
 
 ```python
 @app.route("/portal")
@@ -97,54 +99,54 @@ def portal():
     return render_template("portal.html", username=session["username"], ...)
 ```
 
-- `@app.route(...)` : **décorateur** qui enregistre la fonction comme gestionnaire
-  de cette URL.
-- Une **vue** (ici `portal`) reçoit la requête, lit `request`, prépare des données,
-  puis **retourne une réponse** (du HTML via `render_template`, une redirection, ou
-  du JSON via `jsonify`).
-- `@login_required` / `@admin_required` sont des décorateurs maison : ils
-  **enveloppent** la vue pour vérifier la session avant de l'exécuter.
+- `@app.route(...)`: a **decorator** that registers the function as the handler for
+  that URL.
+- A **view** (here `portal`) receives the request, reads `request`, prepares data, then
+  **returns a response** (HTML via `render_template`, a redirect, or JSON via
+  `jsonify`).
+- `@login_required` / `@admin_required` are home-made decorators: they **wrap** the view
+  to check the session before running it.
 
-**Cycle d'une requête :**
+**Lifecycle of a request:**
 
 ```
-Navigateur → Flask (route) → vue Python → (SMB / SSH) → render_template → HTML → Navigateur
+Browser → Flask (route) → Python view → (SMB / SSH) → render_template → HTML → Browser
 ```
 
 ---
 
-## 5. Jinja2 : « du Python dans le HTML » (la partie que tu voulais creuser)
+## 5. Jinja2: "Python inside HTML" (the part you wanted to dig into)
 
-### 5.1 Le principe
+### 5.1 The principle
 
-Flask **ne sert pas** des `.html` statiques. Il **fabrique** le HTML à chaque
-requête : un **moteur de template** (Jinja2) prend un fichier `.html` contenant des
-**trous** et les remplit avec des données Python.
+Flask **does not serve** static `.html` files. It **builds** the HTML on every request:
+a **template engine** (Jinja2) takes a `.html` file containing **holes** and fills them
+with Python data.
 
 ```python
 return render_template("portal.html",
     username = session["username"],
     group    = group,
-    files    = files_data,          # une liste de dicts
-    group_meta = GROUP_META,        # un dict de dicts
+    files    = files_data,          # a list of dicts
+    group_meta = GROUP_META,        # a dict of dicts
     server_ip  = os.getenv("SAMBA_SERVER"))
 ```
 
-Les arguments après le nom du template forment le **contexte** : les variables que
-le HTML pourra utiliser. C'est le **seul** pont entre Python et le HTML.
+The arguments after the template name form the **context**: the variables the HTML may
+use. It is the **only** bridge between Python and the HTML.
 
-### 5.2 Les trois syntaxes Jinja
+### 5.2 The three Jinja syntaxes
 
-| Syntaxe | Rôle | Exemple |
-|---------|------|---------|
-| `{{ ... }}` | **Afficher** une valeur | `{{ username }}` |
-| `{% ... %}` | **Logique** (if, for, set) | `{% if error %} … {% endif %}` |
-| `{# ... #}` | **Commentaire** (absent du HTML final) | `{# note interne #}` |
+| Syntax | Role | Example |
+|--------|------|---------|
+| `{{ ... }}` | **Display** a value | `{{ username }}` |
+| `{% ... %}` | **Logic** (if, for, set) | `{% if error %} … {% endif %}` |
+| `{# ... #}` | **Comment** (absent from the final HTML) | `{# internal note #}` |
 
-### 5.3 Concrètement, dans `portal.html`
+### 5.3 Concretely, in `portal.html`
 
 ```jinja
-{# Boucle sur les partages autorisés de l'utilisateur #}
+{# Loop over the user's allowed shares #}
 {% for s in allowed %}
   {% set m = group_meta[s] %}
   <a href="{{ url_for('portal', share=s) }}"
@@ -154,15 +156,15 @@ le HTML pourra utiliser. C'est le **seul** pont entre Python et le HTML.
 {% endfor %}
 ```
 
-Trois choses à retenir :
+Three things to remember:
 
-1. `{% for s in allowed %}` = une boucle Python, mais écrite en HTML.
-2. `group_meta[s].icon` : Jinja va chercher la clé `s` dans le dict, puis la clé
-   `icon`. **En Jinja, le point `.` fait aussi bien `getattr` que `["clé"]`** — donc
-   `m.icon` fonctionne sur un dict, et `m.color` aussi.
-3. `{% if share == s %}active{% endif %}` = une classe CSS conditionnelle.
+1. `{% for s in allowed %}` = a Python loop, but written in HTML.
+2. `group_meta[s].icon`: Jinja looks up key `s` in the dict, then key `icon`. **In
+   Jinja, the dot `.` does both `getattr` and `["key"]`** - so `m.icon` works on a dict,
+   and `m.color` too.
+3. `{% if share == s %}active{% endif %}` = a conditional CSS class.
 
-Et pour la liste des fichiers :
+And for the file list:
 
 ```jinja
 {% if smb_error %}
@@ -180,10 +182,10 @@ Et pour la liste des fichiers :
 {% endif %}
 ```
 
-> C'est **le serveur** qui décide quoi afficher (erreur / vide / liste). Le
-> navigateur reçoit du HTML **déjà rempli**.
+> It is **the server** that decides what to show (error / empty / list). The browser
+> receives HTML **already filled in**.
 
-### 5.4 `url_for` : le routage « à l'envers »
+### 5.4 `url_for`: routing "in reverse"
 
 ```jinja
 <a href="{{ url_for('logout') }}">Sign out</a>
@@ -191,18 +193,18 @@ Et pour la liste des fichiers :
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 ```
 
-**Pourquoi ne pas écrire `/logout` en dur ?** Parce que `url_for` **génère** l'URL à
-partir du *nom de la fonction Python* (`logout`, `upload`, `portal`…). Si demain
-l'URL change de `/logout` à `/sign-out`, **rien à modifier dans le HTML**. C'est
-aussi ce qui relie les fichiers statiques (`url_for('static', ...)` → `/static/...`).
+**Why not hard-code `/logout`?** Because `url_for` **generates** the URL from the
+*Python function name* (`logout`, `upload`, `portal`…). If the URL changes from
+`/logout` to `/sign-out` tomorrow, **nothing changes in the HTML**. It is also what
+links the static files (`url_for('static', ...)` → `/static/...`).
 
-### 5.5 Les messages « flash »
+### 5.5 "Flash" messages
 
 ```python
 flash("✅ Password changed successfully.", "success")
 ```
 
-Le message est stocké en session pour **une seule** requête suivante, puis affiché :
+The message is stored in the session for **one** following request, then displayed:
 
 ```jinja
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -212,56 +214,56 @@ Le message est stocké en session pour **une seule** requête suivante, puis aff
 {% endwith %}
 ```
 
-Le motif classique **POST → redirect → GET** : après une action, on **redirige**
-(ici vers `portal`), et le message survit le temps du rechargement. Ça évite qu'un
-F5 rejoue l'action.
+The classic **POST → redirect → GET** pattern: after an action, we **redirect** (here to
+`portal`), and the message survives the reload. This prevents an F5 from replaying the
+action. On the client side, `common.js` adds a close button and auto-dismisses each
+message after a few seconds.
 
-### 5.6 Sécurité : l'échappement automatique (XSS)
+### 5.6 Security: automatic escaping (XSS)
 
-Jinja **échappe par défaut** ce qu'il affiche dans `{{ }}` :
+Jinja **escapes by default** what it prints inside `{{ }}`:
 
 ```jinja
-{{ filename }}   {# <script> devient &lt;script&gt; #}
+{{ filename }}   {# <script> becomes &lt;script&gt; #}
 ```
 
-Donc un nom de fichier malveillant ne peut pas injecter de HTML/JS.
-⚠️ Exception : `{{ valeur | safe }}` **désactive** l'échappement — à n'utiliser que
-sur des données 100 % maîtrisées.
+So a malicious file name cannot inject HTML/JS.
+⚠️ Exception: `{{ value | safe }}` **disables** escaping - only use it on 100% trusted
+data.
 
-### 5.7 Serveur vs navigateur : qui fait quoi ?
+### 5.7 Server vs browser: who does what?
 
-| Côté serveur (Jinja/Python) | Côté navigateur (JS) |
-|------------------------------|----------------------|
-| Génère la page, les listes, les conditions | Interactivité **sans recharger** |
-| `render_template(...)` | `toggleTheme()`, `openModal()`, `fillLogin()` |
-| Décide erreur / vide / contenu | `fetch()` vers `/admin/refresh` (polling 30 s) |
+| Server side (Jinja/Python) | Browser side (JS) |
+|-----------------------------|-------------------|
+| Generates the page, lists, conditions | Interactivity **without reloading** |
+| `render_template(...)` | `toggleTheme()`, `openModal()` |
+| Decides error / empty / content | `fetch()` to `/admin/refresh` (30 s polling) |
 
-Ici, il n'y a **pas d'héritage de template** (`{% extends %}`, `{% block %}`) : chaque
-page est autonome. C'est un choix de simplicité ; avec plus de pages, on factoriserait
-un `base.html`.
+Here there is **no template inheritance** (`{% extends %}`, `{% block %}`): each page is
+self-contained. That is a simplicity choice; with more pages we would factor a
+`base.html`.
 
 ---
 
-## 6. La couche SMB (`samba_client.py`)
+## 6. The SMB layer (`samba_client.py`)
 
-### 6.1 Pourquoi `smbprotocol` directement ?
+### 6.1 Why `smbprotocol` directly?
 
-On **ne monte pas** le partage Samba dans le conteneur (`mount -t cifs`). On parle
-SMB **depuis le code**. Raisons : pas besoin de privilèges/montages sur l'hôte, ça
-marche quel que soit le fuseau d'exécution, et surtout ça permet **d'authentifier
-chaque utilisateur du portail avec ses propres identifiants Samba** (pas de compte
-de service unique).
+We do **not mount** the Samba share inside the container (`mount -t cifs`). We speak SMB
+**from the code**. Reasons: no need for privileges/mounts on the host, it works wherever
+it runs, and above all it lets us **authenticate each portal user with their own Samba
+credentials** (no single service account).
 
-### 6.2 Le chiffrement
+### 6.2 Encryption
 
 ```python
 session = Session(conn, username, password, require_encryption=True)
 ```
 
-Le serveur est configuré en `smb encrypt = required` ; le client **exige** donc le
-chiffrement, sinon la négociation échoue. (SMB3 chiffré = le fil rouge sécu.)
+The server is configured with `smb encrypt = required`; the client therefore **demands**
+encryption, otherwise the negotiation fails. (Encrypted SMB3 = the security thread.)
 
-### 6.3 La détection de groupe (astuce sans LDAP)
+### 6.3 Group detection (a trick without LDAP)
 
 ```python
 def _detect_group(username, password):
@@ -269,59 +271,68 @@ def _detect_group(username, password):
         for share in shares:
             if share == "commun": continue
             try:
-                # on tente de se connecter au partage du groupe
-                tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-                tree.connect()
-                return group           # ça marche → c'est son groupe
+                with _smb(share, username, password):
+                    return group     # it works → this is the user's group
             except Exception:
                 continue
 ```
 
-Plutôt que d'interroger un annuaire, on **teste l'accès aux partages** : le premier
-partage privé accessible révèle le groupe. Le mot de passe est de toute façon validé
-avant par la connexion SMB.
+Rather than querying a directory, we **test access to the shares**: the first accessible
+private share reveals the group. The password is validated beforehand by the SMB session
+anyway.
 
-### 6.4 Le streaming par morceaux (64 Ko)
-
-```python
-def stream_file(...):
-    while True:
-        chunk = file_open.read(offset, CHUNK_SIZE)   # 64 Ko
-        if not chunk: break
-        yield chunk                                  # générateur !
-```
-
-Un **générateur** Python : Flask envoie chaque morceau au fur et à mesure. La RAM
-utilisée reste **~64 Ko** même pour un fichier de 500 Mo. C'est aussi **pour ça**
-qu'on active `threaded=True` dans `main.py` : pendant qu'un téléchargement « tient »
-une requête, les autres ne sont pas bloquées.
-
-### 6.5 La limite assumée de l'upload
+### 6.4 Chunked streaming (64 KB)
 
 ```python
-data = file.read()        # tout en mémoire
+while True:
+    try:
+        chunk = file_open.read(offset, CHUNK_SIZE)   # 64 KB
+    except EndOfFile:
+        break
+    if not chunk: break
+    yield chunk                                      # a generator!
 ```
 
-L'upload charge le fichier **entier en RAM** (borné par `MAX_CONTENT_LENGTH = 500 Mo`).
-Acceptable pour une démo mono-utilisateur ; l'étape suivante serait de **streamer**
-l'upload aussi (lecture par morceaux côté serveur + écriture SMB au fil de l'eau).
+A Python **generator**: Flask sends each chunk as it goes. RAM stays at **~64 KB** even
+for a 500 MB file. This is also **why** we enable `threaded=True` in `main.py`: while a
+download "holds" one request, the others are not blocked.
+
+> SMB raises `EndOfFile` when reading exactly at the end of the file - that is a normal
+> end of stream, not an error. Handling it also avoids truncating downloads larger than
+> one chunk.
+
+### 6.5 The accepted upload limit
+
+```python
+data = file.read()        # everything in memory
+```
+
+The upload loads the file **entirely into RAM** (bounded by `MAX_CONTENT_LENGTH = 500 MB`).
+Acceptable for a single-user demo; the next step would be to **stream** the upload too
+(read in chunks on the server side + write to SMB as it goes).
+
+### 6.6 Filenames are UTF-16LE
+
+A subtle trap: SMB returns directory entry **names as raw UTF-16LE bytes**. Treated as
+text, `README.md` shows up as `b'R\x00E\x00A\x00D\x00M\x00E\x00.\x00m\x00d\x00'`, the
+`.`/`..` entries are no longer filtered, extensions are not recognised, and a delete
+targets a garbled path. Hence `_decode_name()` (and filtering `.`/`..`) in `list_files`.
 
 ---
 
-## 7. La couche admin (`admin_logic.py`)
+## 7. The admin layer (`admin_logic.py`)
 
-### 7.1 Pourquoi SSH + `paramiko` ?
+### 7.1 Why SSH + `paramiko`?
 
-Le tableau de bord doit faire des choses que **seul l'hôte** peut faire :
-`systemctl status smbd`, `smbstatus`, `pdbedit`, `fail2ban-client`, lancer le
-backup… Comme on ne veut pas donner à l'appli un accès direct à `/etc` ou aux
-sockets, on passe par **SSH** et on exécute des **commandes**, puis on **lit la
-sortie** et on la transforme en chiffres pour l'UI.
+The dashboard must do things that **only the host** can do: `systemctl status smbd`,
+`smbstatus`, `pdbedit`, `fail2ban-client`, run the backup… Since we don't want to give
+the app direct access to `/etc` or to sockets, we go through **SSH**, run **commands**,
+then **read the output** and turn it into numbers for the UI.
 
-> Conséquence importante : le tableau de bord affiche de **vraies** données de la
-> VM (charge, mémoire, disque, bans fail2ban), pas des données simulées.
+> Important consequence: the dashboard shows **real** data from the VM (load, memory,
+> disk, fail2ban bans), not simulated data.
 
-### 7.2 Injection de commande : `shlex.quote`
+### 7.2 Command injection: `shlex.quote`
 
 ```python
 def _sudo(cmd):
@@ -329,28 +340,28 @@ def _sudo(cmd):
     return f"echo {pwd_safe} | sudo -S {cmd}"
 ```
 
-Toute valeur qui vient de l'extérieur (nom d'utilisateur, mot de passe, IP) est
-passée par **`shlex.quote()`** avant d'être insérée dans une commande shell. Sans
-ça, un nom comme `x; rm -rf /` serait exécuté. C'est **la** règle de sécurité
-numéro un quand on construit des commandes shell en Python.
+Any externally supplied value (username, password, IP) goes through **`shlex.quote()`**
+before being inserted into a shell command. Without it, a name like `x; rm -rf /` would
+be executed. It is **the** number-one security rule when building shell commands in
+Python.
 
-### 7.3 Le journal d'audit
+### 7.3 The audit log
 
 ```python
-AUDIT_LOG = Path(__file__).parent / "audit.log"
+AUDIT_LOG = Path(os.getenv("AUDIT_LOG", Path(__file__).parent / "audit.log"))
 ```
 
-Chaque action d'admin (login, ajout/suppression d'utilisateur, ban, backup…) est
-écrite dans un fichier local avec horodatage et auteur. C'est ce qui donne la
-dimension « traçabilité » (fil rouge SOC). En conteneur, ce fichier est monté sur un
-**volume** pour survivre aux rebuilds — et on le **pré-crée** dans l'image, sinon
-Docker créerait un **dossier** au même chemin (piège classique).
+Every admin action (login, user add/delete, ban, backup…) is written to a local file with
+a timestamp and the author. That is what gives the "traceability" dimension (SOC theme).
+In the container, this file lives inside a **volume** so it survives rebuilds - and the
+target **directory** is pre-created in the image (`RUN mkdir -p /app/logs`), otherwise
+Docker would create a **directory** where a file path is expected (a classic trap).
 
 ---
 
-## 8. Sessions & authentification
+## 8. Sessions & authentication
 
-### 8.1 Sessions **côté serveur**
+### 8.1 **Server-side** sessions
 
 ```python
 app.config["SESSION_TYPE"]      = "filesystem"
@@ -358,85 +369,88 @@ app.config["SESSION_FILE_DIR"]  = "/tmp/flask_sessions_samba"
 app.config["SESSION_USE_SIGNER"]= True
 ```
 
-Le navigateur ne reçoit qu'un **identifiant de session signé** ; les données
-(username, groupe, rôle…) restent **sur le serveur**. On ne fait pas confiance au
-client pour dire « je suis admin ». *(D'où le volume nommé sur
-`/tmp/flask_sessions_samba`, sinon tout le monde est déconnecté à chaque rebuild.)*
+The browser only receives a **signed session identifier**; the data (username, group,
+role…) stays **on the server**. We do not trust the client to claim "I am admin".
+*(Hence the named volume on `/tmp/flask_sessions_samba`, otherwise everyone is logged
+out on every rebuild.)*
 
-### 8.2 Pourquoi on garde le mot de passe en session
+### 8.2 Why we keep the password in the session
 
-Chaque opération SMB nécessite **les identifiants de l'utilisateur** (pas de compte
-partagé). On les stocke donc dans la session **côté serveur** pour les réutiliser.
-C'est un compromis assumé : le mot de passe n'est jamais exposé au navigateur, mais
-il est en clair dans un fichier de session sur le serveur. Une évolution serait un
-coffre chiffré ou un mécanisme de ticket SMB.
+Each SMB operation needs **the user's credentials** (no shared account). So we store them
+in the session **server-side** to reuse them. It is an accepted trade-off: the password
+is never exposed to the browser, but it is in clear text in a session file on the server.
+An evolution would be an encrypted vault or an SMB ticket mechanism.
 
-### 8.3 Décorateurs et RBAC
+### 8.3 Decorators and RBAC
 
 ```python
-def login_required(f):          # exige session["username"]
-def admin_required(f):          # exige session["role"] == "admin"
+def login_required(f):          # requires session["username"]
+def admin_required(f):          # requires session["role"] == "admin"
 ```
 
-Le contrôle d'accès aux partages est centralisé :
+Access control to shares is centralised:
 
 ```python
 GROUP_ACCESS = {"direction": ["direction", "commun"], ...}
 ```
 
-Une vue vérifie toujours `if share not in GROUP_ACCESS[session["group"]][: ...]`. On
-**n'autorise jamais** un partage simplement parce que l'URL le demande.
+A view always checks `if share not in GROUP_ACCESS[session["group"]]: ...`. We **never**
+grant a share just because the URL asks for it.
 
-### 8.4 Un quirk à connaître
+### 8.4 A quirk to know about
 
-Le login admin appelle `adm.test_ssh_auth()`, qui **utilise les identifiants SSH de
-`.env`** (donc le champ « password » saisi est **ignoré** pour l'admin). À corriger
-ou à documenter — mais il faut le savoir pour ne pas s'étonner en démo.
-
----
-
-## 9. La posture sécurité (le « fil rouge »)
-
-| Mesure | Où | Pourquoi |
-|--------|----|----------|
-| SMBv1 désactivé, SMB2 minimum | `smb.conf` | SMBv1 est obsolète et vulnérable (WannaCry). |
-| `smb encrypt = required` | `smb.conf` + `require_encryption=True` | Trafic SMB chiffré de bout en bout. |
-| fail2ban | systemd hôte | Bans réels des IP qui brute-forcent. |
-| `shlex.quote` | `admin_logic.py` | Anti-injection de commande. |
-| Échappement Jinja | templates | Anti-XSS. |
-| Sessions signées, côté serveur | Flask-Session | Le client ne peut pas falsifier son rôle. |
-| `MAX_CONTENT_LENGTH` | `app.py` | Borner les uploads. |
-| `audit.log` | `admin_logic.py` | Traçabilité des actions. |
-| Groupes Unix + masques `2770/2777` | `setup_samba.sh` | Cloisonnement des partages. |
+The admin login calls `adm.test_ssh_auth()`, which **uses the SSH credentials from
+`.env`** (so the "password" field typed in is **ignored** for the admin). To fix or to
+document - but you need to know it so you don't get surprised during a demo.
 
 ---
 
-## 10. Emballage & exécution (Docker, uv)
+## 9. Security posture (the "thread")
 
-**Pourquoi ne dockeriser que le web ?** Parce que le but est de montrer un **vrai**
-serveur Linux : si Samba était dans un conteneur, fail2ban/systemd/les partages ne
-seraient plus « réels ». On containerise donc seulement la partie applicative
-(reproductible, portable), et on laisse l'infra en **systemd**.
+| Measure | Where | Why |
+|---------|-------|-----|
+| SMBv1 disabled, SMB2 minimum | `smb.conf` | SMBv1 is obsolete and vulnerable (WannaCry). |
+| `smb encrypt = required` | `smb.conf` + `require_encryption=True` | End-to-end encrypted SMB traffic. |
+| fail2ban | host systemd | Real bans of brute-forcing IPs. |
+| `shlex.quote` | `admin_logic.py` | Command-injection protection. |
+| Jinja escaping | templates | Anti-XSS. |
+| Signed, server-side sessions | Flask-Session | The client cannot forge its role. |
+| `MAX_CONTENT_LENGTH` | `app.py` | Bound uploads. |
+| `audit.log` | `admin_logic.py` | Traceability of actions. |
+| Unix groups + masks `2770/2777` | `setup_samba.sh` | Compartmentalisation of shares. |
 
-**Le Dockerfile**
+---
+
+## 10. Packaging & running (Docker, uv)
+
+**Why dockerize only the web?** Because the goal is to show a **real** Linux server: if
+Samba were in a container, fail2ban/systemd/the shares would no longer be "real". So we
+containerize only the application part (reproducible, portable) and keep the infra in
+**systemd**.
+
+**The Dockerfile**
 
 ```dockerfile
 FROM python:3.14-slim
+WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY backend/ frontend/ main.py ./
-RUN touch /app/backend/audit.log
+COPY backend/ /app/backend/
+COPY frontend/ /app/frontend/
+COPY main.py .
+RUN mkdir -p /app/logs
 CMD ["/app/.venv/bin/python", "main.py"]
 ```
 
-- **`uv` + `uv.lock`** = dépendances **figées** → build reproductible.
-- **`CMD` avec le python du venv** directement : on évite que `uv run` re-synchronise
-  au démarrage du conteneur (moins d'overhead, moins de surprises de permissions).
-- **`touch audit.log`** : comme expliqué au §7.3, il **faut** que le fichier existe
-  dans l'image, sinon le volume monté dessus devient un **dossier**.
+- **`uv` + `uv.lock`** = **frozen** dependencies → reproducible build.
+- **`CMD` with the venv's python** directly: we avoid `uv run` re-synchronising when the
+  container starts (less overhead, fewer permission surprises).
+- **`mkdir -p /app/logs`**: as explained in §7.3, the mount point must be a **directory**
+  in the image, otherwise the named volume attached to it behaves as a directory and the
+  audit file can never be created.
 
-**Le compose**
+**The compose file**
 
 ```yaml
 services:
@@ -447,94 +461,94 @@ services:
     environment:
       SAMBA_SERVER: ${VM_IP:-10.0.1.10}
       SSH_HOST:     ${VM_IP:-10.0.1.10}
+      AUDIT_LOG:    /app/logs/audit.log
     volumes:
-      - admin-audit:/app/backend/audit.log
+      - admin-audit:/app/logs
       - sessions:/tmp/flask_sessions_samba
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
 ```
 
-- **`env_file`** : sinon l'admin ne reçoit jamais `SSH_USER`/`SSH_PASSWORD`.
-- **volumes** : persistance des sessions (sinon déconnexion à chaque rebuild) et de
-  l'audit.
-- **`healthcheck`** : `docker compose` peut dire si le conteneur est **sain**, via une
-  route `/health` dédiée (renvoie `{"status":"ok"}`).
+- **`env_file`**: otherwise the admin never receives `SSH_USER`/`SSH_PASSWORD`.
+- **volumes**: persistence of sessions (otherwise logout on every rebuild) and of the
+  audit log.
+- **`healthcheck`**: `docker compose` can tell whether the container is **healthy**, via a
+  dedicated `/health` route (returns `{"status":"ok"}`).
 
-**Pourquoi pas de gunicorn ?** Choix **démo** : le serveur intégré de Flask suffit
-(mono-utilisateur) et évite une couche en plus. Pour la concurrence, `threaded=True`.
-En prod → reverse proxy (nginx) + serveur WSGI.
-
----
-
-## 11. L'infra : qui tourne où ? (le point qui prête à confusion)
-
-| Élément | S'exécute sur | Rôle |
-|---------|---------------|------|
-| `tools.sh` | **l'hôte (ta machine, Fedora)** | Installe libvirt, Vagrant, uv. |
-| `Makefile` | **l'hôte** | Orchestre tout (pilotage de Vagrant). |
-| `Vagrantfile` | **l'hôte** pilote / **la VM** exécute | Crée la VM 10.0.1.10 + installe Docker. |
-| `infra/setup_samba.sh` | **l'hôte** (via SSH) | Configure Samba/fail2ban/backup **dans la VM**. |
-| `docker compose` | **la VM** | Lance le conteneur `web`. |
-| Samba, fail2ban, sshd, cron | **la VM (systemd)** | Les vrais services. |
-
-> `tools.sh` **et** `setup_samba.sh` ne tournent **jamais** *dans* le conteneur :
-> ce sont des scripts de ta machine. `setup_samba.sh` parle à la VM **par SSH**
-> (`sshpass`) pour la configurer à distance.
-
-**Pourquoi Vagrant ?** Pour décrire l'environnement **en code** (`Vagrantfile`) :
-une IP fixe connue (`10.0.1.10`), une VM jetable et reproductible. C'est la même
-logique que Docker, mais au niveau serveur.
+**Why no gunicorn?** A **demo** choice: Flask's built-in server is enough (single user)
+and avoids one more layer. For concurrency, `threaded=True`. In prod → reverse proxy
+(nginx) + a WSGI server.
 
 ---
 
-## 12. Décisions & compromis (tableau récapitulatif)
+## 11. The infra: what runs where? (the confusing point)
 
-| Décision | Pourquoi | Alternative |
-|----------|----------|-------------|
-| Samba en **systemd**, pas en conteneur | fail2ban/services/IP réels | Samba conteneurisé (perd le réalisme) |
-| Seul le **web** est dockerisé | Reproductible + portable | Tout en bare-metal |
-| Le conteneur vise l'**IP de la VM** | `127.0.0.1` = le conteneur | `network_mode: host` |
-| **Sessions côté serveur** | Le client n'est pas une source de vérité | Cookie signé contenant le rôle |
-| **Jinja** (rendu serveur) + JS léger | Simple, robuste, pas de build | SPA complet |
-| **React** seulement pour le login | Montrer du front sans tout réécrire | Migration totale |
-| **Pas de gunicorn** (démo) | Moins de surface | gunicorn + nginx (prod) |
-| Upload **en mémoire** | Simplicité démo | Streaming complet de l'upload |
+| Element | Runs on | Role |
+|---------|---------|------|
+| `tools.sh` | **the host (your Fedora machine)** | Installs libvirt, Vagrant, uv. |
+| `Makefile` | **the host** | Orchestrates everything (drives Vagrant). |
+| `Vagrantfile` | **host** drives / **VM** executes | Creates the VM 10.0.1.10 + installs Docker. |
+| `infra/setup_samba.sh` | **the host** (over SSH) | Configures Samba/fail2ban/backup **inside the VM**. |
+| `docker compose` | **the VM** | Runs the `web` container. |
+| Samba, fail2ban, sshd, cron | **the VM (systemd)** | The real services. |
 
----
+> `tools.sh` **and** `setup_samba.sh` **never** run *inside* the container: they are
+> scripts on your machine. `setup_samba.sh` talks to the VM **over SSH** (`sshpass`) to
+> configure it remotely. `make sync` likewise copies the project into the VM with
+> `rsync` over SSH.
 
-## 13. « Est-ce que j'y aurais pensé tout seul ? » — les réflexes à garder
-
-Ces réflexes sont **transférables** ; ce sont eux qu'un recruteur veut voir :
-
-1. **Séparer les responsabilités** (web / SMB / SSH) → code lisible, testable.
-2. **Ne jamais faire confiance au client** : sessions côté serveur, vérif d'accès
-   serveur, échappement des sorties.
-3. **Configurer par variables d'environnement** : aucun IP/secrets en dur.
-4. **Empêcher l'injection** dès qu'on construit du shell (`shlex.quote`).
-5. **Borner la mémoire** : streaming par générateurs, `MAX_CONTENT_LENGTH`.
-6. **Relier les URL par nom** (`url_for`), jamais en dur.
-7. **POST → redirect → GET** pour les actions (flash).
-8. **Persistance explicite** : volumes pour sessions/audit.
-9. **Penser « où ça tourne »** : hôte vs VM vs conteneur (le piège du loopback).
-10. **Reproductibilité** : `uv.lock`, `Vagrantfile`, image Docker.
-11. **Observabilité minimale** : route `/health`, `audit.log`.
-12. **Traçabilité & moindre privilège** : audit, groupe docker, utilisateur non-root
-    (désactivé en démo, à réactiver en prod).
-
-> Rien de tout ça n'est « magique » : ce sont des **réflexes** qui viennent en se
-> demandant à chaque ligne : *« qui parle à qui, et est-ce que je fais confiance à
-> cette donnée ? »*. Le fait de te poser la question prouve déjà que tu es sur la
-> bonne voie.
+**Why Vagrant?** To describe the environment **in code** (`Vagrantfile`): a known fixed IP
+(`10.0.1.10`), a disposable, reproducible VM. It is the same idea as Docker, but at the
+server level.
 
 ---
 
-## 14. Glossaire
+## 12. Decisions & trade-offs (summary table)
 
-- **WSGI** : interface standard entre un serveur web Python et une appli (Flask).
-- **Jinja2** : moteur de templates de Flask (`{{ }}`, `{% %}`).
-- **SMB2/3** : protocole de partage de fichiers (Samba l'implémente sous Linux).
-- **fail2ban** : logiciel qui bannit les IP après trop d'échecs d'authentification.
-- **systemd** : gestionnaire de services de Linux (`systemctl`).
-- **Volume (Docker)** : stockage persistant indépendant du conteneur.
-- **Healthcheck** : commande qui dit si un conteneur est « sain ».
-- **libvirt** : couche de virtualisation utilisée par Vagrant sous Linux.
+| Decision | Why | Alternative |
+|----------|-----|-------------|
+| Samba in **systemd**, not containerized | Real fail2ban/services/IPs | Containerized Samba (loses realism) |
+| Only the **web** is dockerized | Reproducible + portable | Everything bare-metal |
+| The container targets the **VM IP** | `127.0.0.1` = the container | `network_mode: host` |
+| **Server-side sessions** | The client is not a source of truth | Signed cookie containing the role |
+| **Jinja** (server rendering) + light JS | Simple, robust, no build | Full SPA |
+| **No gunicorn** (demo) | Smaller surface | gunicorn + nginx (prod) |
+| Upload **in memory** | Demo simplicity | Full streaming upload |
+
+---
+
+## 13. "Would I have thought of that on my own?" - the reflexes to keep
+
+These reflexes are **transferable**; they are what a recruiter wants to see:
+
+1. **Separate concerns** (web / SMB / SSH) → readable, testable code.
+2. **Never trust the client**: server-side sessions, server-side access checks, output
+   escaping.
+3. **Configure through environment variables**: no hard-coded IPs/secrets.
+4. **Prevent injection** as soon as you build shell (`shlex.quote`).
+5. **Bound memory**: generator streaming, `MAX_CONTENT_LENGTH`.
+6. **Link URLs by name** (`url_for`), never hard-coded.
+7. **POST → redirect → GET** for actions (flash).
+8. **Explicit persistence**: volumes for sessions/audit.
+9. **Think "where does this run"**: host vs VM vs container (the loopback trap).
+10. **Reproducibility**: `uv.lock`, `Vagrantfile`, Docker image.
+11. **Minimal observability**: `/health` route, `audit.log`.
+12. **Traceability & least privilege**: audit, docker group, non-root user (disabled in the
+    demo, to re-enable in prod).
+
+> None of this is "magic": they are **reflexes** that come from asking, on every line:
+> *"who talks to whom, and do I trust this data?"*. The fact that you ask the question
+> already proves you are on the right track.
+
+---
+
+## 14. Glossary
+
+- **WSGI**: standard interface between a Python web server and an app (Flask).
+- **Jinja2**: Flask's template engine (`{{ }}`, `{% %}`).
+- **SMB2/3**: file-sharing protocol (Samba implements it on Linux).
+- **fail2ban**: software that bans IPs after too many authentication failures.
+- **systemd**: Linux service manager (`systemctl`).
+- **Volume (Docker)**: persistent storage independent of the container.
+- **Healthcheck**: a command that says whether a container is "healthy".
+- **libvirt**: the virtualisation layer Vagrant uses on Linux.

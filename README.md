@@ -1,12 +1,12 @@
 # SambaPME
 
+<div align='center'>
+[Lire la version française](./README.fr.md)
+</div>
+
 **A web portal for a Samba file server.** Employees sign in and browse the shared
 folders of their department; administrators get a dashboard to manage Samba accounts,
-watch fail2ban, run backups and audit activity — all from the browser.
-
-> Portfolio project (application for a developer internship).
-> Focus on the front-end (**HTML/CSS/JS**, with a **React** login page as a bonus),
-> backed by a *real* Samba / SSH infrastructure — nothing is mocked.
+watch fail2ban, run backups and audit activity - all from the browser.
 
 ---
 
@@ -21,7 +21,7 @@ files, and gives IT a dashboard that drives the **real server over SSH**
 
 The infrastructure is deliberate and realistic:
 
-- **Samba, fail2ban, backups and logs run as systemd services on the VM** — the real server.
+- **Samba, fail2ban, backups and logs run as systemd services on the VM** - the real server.
 - **Only the web app is containerized** (Docker); it reaches Samba over **SMB** and the
   host over **SSH**.
 
@@ -34,7 +34,7 @@ The infrastructure is deliberate and realistic:
 flowchart LR
     user["Browser<br/>(employee / administrator)"]
 
-    subgraph VM["Ubuntu 24.04 VM — 10.0.1.10"]
+    subgraph VM["Ubuntu 24.04 VM - 10.0.1.10"]
         direction TB
         subgraph DOCKER["Docker · docker compose"]
             web["web container<br/>Flask · port 5000"]
@@ -64,14 +64,14 @@ flowchart LR
 | **Administrator** | browser → `web:5000` → SSH `10.0.1.10:22` | The dashboard runs real commands on the host and renders their output. |
 | **Security** | fail2ban ⟷ Samba logs | fail2ban bans abusive IPs at the OS level; the dashboard reads the ban list and can unban an address. |
 
-Inside a container, `127.0.0.1` is the *container itself* — that is why the portal targets
+Inside a container, `127.0.0.1` is the *container itself* - that is why the portal targets
 the VM's IP (`10.0.1.10`) for both SMB and SSH.
 
 ## How the code files work together
 
 ```mermaid
 flowchart TD
-    main["main.py<br/>entry point — starts the server"]
+    main["main.py<br/>entry point - starts the server"]
 
     subgraph BE["backend/ · Python package"]
         app["app.py<br/>Flask app · routes · RBAC · sessions"]
@@ -81,8 +81,8 @@ flowchart TD
     end
 
     subgraph FE["frontend/"]
-        tpl["templates/*.html<br/>Jinja2 — rendered on the server"]
-        js["static/js/*.js<br/>vanilla JS — runs in the browser"]
+        tpl["templates/*.html<br/>Jinja2 - rendered on the server"]
+        js["static/js/*.js<br/>vanilla JS - runs in the browser"]
         css["static/style.css"]
     end
 
@@ -102,9 +102,9 @@ flowchart TD
 | `main.py` | Boots the web server (`app.run(...)`). |
 | `backend/app.py` | The Flask app: URL routes, authentication, RBAC, sessions, error handlers. Passes data to Jinja templates. |
 | `backend/samba_client.py` | Everything SMB: list, upload, stream (chunked), preview, delete, password check. |
-| `backend/admin_logic.py` | Everything SSH: service status, Samba users, fail2ban, backups — plus the local `audit.log`. |
+| `backend/admin_logic.py` | Everything SSH: service status, Samba users, fail2ban, backups - plus the local `audit.log`. |
 | `frontend/templates/*.html` | **Jinja2** pages, rendered by Flask before being sent to the browser. |
-| `frontend/static/js/*.js` | Browser-side behaviour (theme, modals, live polling) — plain JavaScript. |
+| `frontend/static/js/*.js` | Browser-side behaviour (theme, modals, live polling) - plain JavaScript. |
 | `frontend/static/style.css` | All styling, with CSS variables for dark/light themes. |
 
 ## Request lifecycle
@@ -136,7 +136,7 @@ sequenceDiagram
     F-->>B: 302 → /portal or /admin
 ```
 
-**Download** (streamed in 64 KB chunks — constant memory):
+**Download** (streamed in 64 KB chunks - constant memory):
 
 ```mermaid
 sequenceDiagram
@@ -166,9 +166,9 @@ sequenceDiagram
 | Web backend | Python · **Flask** · Flask-Session (server-side filesystem sessions) |
 | File access | **smbprotocol** (SMB2/3, encryption required) |
 | Server administration | **Paramiko** (SSH) → `systemctl`, `smbstatus`, `pdbedit`, `fail2ban-client`… |
-| Frontend | **Jinja2** templates · vanilla **JavaScript** · hand-written **CSS** · **React** (Vite) login page *(bonus)* |
+| Frontend | **Jinja2** templates · vanilla **JavaScript** · hand-written **CSS** |
 | Virtualization | **Vagrant** + libvirt · Ubuntu 24.04 |
-| Server services | **Samba 4** (smbd/nmbd) · fail2ban · rsyslog · cron · sshd — all **systemd** |
+| Server services | **Samba 4** (smbd/nmbd) · fail2ban · rsyslog · cron · sshd - all **systemd** |
 | Packaging | **Docker** + Docker Compose (web only) · **uv** for Python dependencies |
 | Host tooling | **Makefile** + bash scripts (Fedora host) |
 
@@ -187,8 +187,8 @@ docker-compose.yml  single `web` service
 main.py             entry point (Flask, port 5000)
 Makefile, tools.sh  host tooling (provision libvirt/vagrant/uv)
 pyproject.toml, uv.lock   Python dependencies
-exp.md              design rationale & explanations
-roadmap.md          working plan / status
+exp.md, exp.fr.md   design rationale & explanations (EN / FR)
+shots/              screenshots used in this README
 ```
 
 ## Quickstart
@@ -202,7 +202,8 @@ make tools      # 1. install host tooling (libvirt, Vagrant, uv)
 make machine    # 2. boot the VM (10.0.1.10) with Docker inside
 make infra      # 3. provision Samba + fail2ban + backups on the VM
 make env        # 4. create .env from .env.example
-make up         # 5. build & start the web container on the VM
+make sync       # 5. copy the project into the VM (/home/vagrant/samba)
+make up         # 6. build & start the web container on the VM
 # → open http://10.0.1.10:5000
 ```
 
@@ -210,9 +211,10 @@ make up         # 5. build & start the web container on the VM
 |--------|---------|---------|
 | `make help` | host | List every target. |
 | `make tools` | host | Install libvirt, Vagrant, uv. |
-| `make machine` | host | `vagrant up` — create the VM and install Docker. |
-| `make infra` | host | `setup_samba.sh` — configure Samba on the VM (over SSH). |
+| `make machine` | host | `vagrant up` - create the VM and install Docker. |
+| `make infra` | host | `setup_samba.sh` - configure Samba on the VM (over SSH). |
 | `make env` | host | Create `.env` from `.env.example`. |
+| `make sync` | host → VM | Copy the project into the VM over SSH (`rsync`). |
 | `make up` / `down` / `logs` | host → VM | Drive the `web` container. |
 | `make ssh` | host | Shell into the VM. |
 | `make destroy` | host | Delete the VM. |
@@ -238,7 +240,7 @@ Employees only see the shares allowed to their group, plus the shared `commun` s
 ## Security highlights
 
 - **SMBv1 disabled**, SMB2 minimum, **SMB3 encryption required** (`smb encrypt = required`).
-- **fail2ban** watches the Samba logs and bans brute-force IPs — active on the host, not simulated.
+- **fail2ban** watches the Samba logs and bans brute-force IPs - active on the host, not simulated.
 - Every external value is passed through **`shlex.quote()`** before reaching a shell command.
 - **Server-side sessions**, signed, with a configurable secret key.
 - An **audit log** records administrative actions.
@@ -248,19 +250,18 @@ Employees only see the shares allowed to their group, plus the shared `commun` s
 
 | Decision | Why | Alternative considered |
 |----------|-----|------------------------|
-| Samba stays **systemd**, not containerized | Real fail2ban, real services, real IPs — the security thread is genuine | Samba in a container (loses the realism) |
+| Samba stays **systemd**, not containerized | Real fail2ban, real services, real IPs - the security thread is genuine | Samba in a container (loses the realism) |
 | Only the **web** is dockerized | Reproducible, portable app layer | Everything bare-metal |
 | Container → **VM IP**, not `127.0.0.1` | Inside a container, loopback is the container | `network_mode: host` (less portable) |
 | **No gunicorn/nginx** (demo) | Keep the footprint minimal | gunicorn + nginx (documented as a prod upgrade) |
 | **Server-rendered** pages (Jinja) + light JS | Simple, SEO/robust, no build step | Full SPA |
-| **React** only for login (bonus) | Showcase front-end skills without rewriting everything | Migrate the whole UI |
 
 The full reasoning is in **[`exp.md`](./exp.md)**.
 
 ## Production notes
 
 - For the demo the web app is served by the **built-in Flask server** (with threading).
-  A production deployment would sit behind a reverse proxy (e.g. nginx) — mind the
+  A production deployment would sit behind a reverse proxy (e.g. nginx) - mind the
   `client_max_body_size` limit (default 1 MB vs. uploads up to 500 MB here).
 - Uploads are currently read fully into memory (bounded by `MAX_CONTENT_LENGTH`, 500 MB);
   a streaming upload path would be the next step.
@@ -268,8 +269,33 @@ The full reasoning is in **[`exp.md`](./exp.md)**.
 
 ## Screenshots
 
-*(to be added — login dark/light, portal file list, admin dashboard: overview, users, fail2ban)*
+**Sign in &amp; employee portal** - the login page, and a department share as seen by an
+employee of `direction` (file list with View / Download / Delete actions):
 
-## Status & roadmap
+<table>
+<tr>
+<td width="34%"><img src="shots/login.png" alt="Sign in page"></td>
+<td><img src="shots/direction-dashboard.png" alt="Employee portal - department share"></td>
+</tr>
+</table>
 
-See **[`roadmap.md`](./roadmap.md)** for the detailed, file-by-file plan and current progress.
+**Administration dashboard** - real host metrics, Samba sessions and the log viewer:
+
+<table>
+<tr>
+<td><img src="shots/admin-dashboard.png" alt="Admin dashboard - overview"></td>
+</tr>
+<tr>
+<td><img src="shots/logs.png" alt="Admin dashboard - Samba logs"></td>
+</tr>
+</table>
+
+**Change password** - an employee updates their own Samba password:
+
+<img src="shots/change-password.png" alt="Change password modal" width="70%">
+
+## Status
+
+The project runs end to end: VM provisioning, Samba + fail2ban on the host, the
+Dockerized web app, and the administration dashboard. The design notes and trade-offs
+are in **[`exp.md`](./exp.md)**.
