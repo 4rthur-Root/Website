@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -54,14 +54,6 @@
           <span>🔑</span><span>My password</span>
         </button>
       </div>
-
-      <div class="server-status-box">
-        <p class="sidebar-label">Server</p>
-        <div class="status-line">🟢 smbd active</div>
-        <div class="status-line">🔒 SMB2/SMB3</div>
-        <div class="status-line">🛡️ Fail2ban ON</div>
-        <div class="status-ip">{{ server_ip }}</div>
-      </div>
     </aside>
 
     <main class="main-content">
@@ -90,13 +82,6 @@
           </label>
         </form>
         {% endif %}
-      </div>
-
-      <div class="perm-banner"
-           style="background:{{ group_meta[share].color }}0d;border-color:{{ group_meta[share].color }}30;color:{{ group_meta[share].color }}">
-        🔐 <strong>Permissions:</strong>
-        read + write ({{ '2777' if share == 'commun' else '2770' }}) · group: <strong>{{ share }}</strong>
-        · Max upload: <strong>500 MB</strong>
       </div>
 
       {% if smb_error %}

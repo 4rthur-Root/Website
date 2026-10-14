@@ -415,27 +415,6 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
   background: var(--bg-elevated);
 }
 
-.server-status-box {
-  margin-top: auto;
-  padding: 14px 16px;
-  border-top: 1px solid var(--border);
-}
-
-.status-line {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-bottom: 3px;
-  font-family: var(--font-mono);
-}
-
-.status-ip {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-blue);
-  margin-top: 6px;
-}
-
 /* Main content */
 .main-content {
   flex: 1;
@@ -446,38 +425,45 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
 
 /* Flash messages */
 .flash {
-  padding: 10px 16px;
+  padding: 12px 14px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   margin-bottom: 14px;
-  border-left: 3px solid;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  transition: opacity .35s ease, transform .35s ease;
 }
 
-.flash-success {
-  background: rgba(63,185,80,.1);
-  border-color: var(--accent-green);
-  color: var(--accent-green);
+.flash-success { border-left-color: var(--accent-green); }
+.flash-error   { border-left-color: var(--accent-red); }
+.flash-warning { border-left-color: var(--accent-orange); }
+.flash-info    { border-left-color: var(--accent-blue); }
+
+.flash-hide {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
-.flash-error {
-  background: rgba(248,81,73,.1);
-  border-color: var(--accent-red);
-  color: var(--accent-red);
+.flash-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
 }
 
-.flash-warning {
-  background: rgba(210,153,34,.1);
-  border-color: var(--accent-orange);
-  color: var(--accent-orange);
-}
-
-.flash-info {
-  background: rgba(56,139,253,.1);
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
+.flash-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-base);
 }
 
 /* Share header */
@@ -515,15 +501,6 @@ code, .mono { font-family: var(--font-mono); font-size: 12px; }
 .share-title p {
   font-size: 12px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-
-.perm-banner {
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  border: 1px solid;
-  margin-bottom: 20px;
   font-family: var(--font-mono);
 }
 
@@ -1393,7 +1370,6 @@ pre.file-content {
   .sidebar { width: 176px; }
   .main-content { padding: 16px 12px; }
   .share-header { align-items: flex-start; flex-wrap: wrap; }
-  .perm-banner { line-height: 1.8; }
 
   .admin-body { height: auto; min-height: 100vh; overflow: visible; }
   .admin-sidebar { width: 176px; min-height: 100vh; }

@@ -57,12 +57,12 @@ def too_large(e):
 
 @app.errorhandler(500)
 def server_error(e):
-    flash(f"⛔ Internal server error: {str(e)}", "error")
+    flash("⛔ Something went wrong on the server. Please try again.", "error")
     return redirect(url_for("portal")), 303
 
 @app.errorhandler(403)
 def forbidden(e):
-    flash("⛔ NT_STATUS_ACCESS_DENIED - access denied.", "error")
+    flash("⛔ Access denied.", "error")
     return redirect(url_for("portal")), 303
 
 # Decorators
@@ -172,7 +172,7 @@ def portal():
 def upload(share):
     allowed = GROUP_ACCESS.get(session["group"], [])
     if share not in allowed:
-        flash("⛔ NT_STATUS_ACCESS_DENIED - upload denied", "error")
+        flash("⛔ You don't have permission to upload to this share.", "error")
         return redirect(url_for("portal"))
 
     file = request.files.get("file")
@@ -193,7 +193,7 @@ def upload(share):
         else:
             flash(f"⛔ {result['error']}", "error")
     except Exception as e:
-        flash(f"⛔ Upload error: {str(e)}", "error")
+        flash("⛔ Upload failed. Please try again.", "error")
 
     return redirect(url_for("portal", share=share))
 
@@ -217,8 +217,8 @@ def stream_download(share, filename):
             headers["Content-Length"] = str(file_size)
 
         return Response(stream_with_context(generator), mimetype=mime, headers=headers)
-    except Exception as e:
-        flash(f"⛔ Download error : {str(e)}", "error")
+    except Exception:
+        flash("⛔ Download failed. Please try again.", "error")
         return redirect(url_for("portal", share=share))
 
 
@@ -246,8 +246,8 @@ def preview(share, filename):
                                     session["username"], session["password"])
         return Response(stream_with_context(generator), mimetype=mime,
                         headers={"Content-Disposition": f'inline; filename="{filename}"'})
-    except Exception as e:
-        flash(f"⛔ Preview failed : {str(e)}", "error")
+    except Exception:
+        flash("⛔ Preview failed. Please try again.", "error")
         return redirect(url_for("portal", share=share))
 
 
@@ -256,7 +256,7 @@ def preview(share, filename):
 #@ueba_hook.lf2r("delete")
 def delete(share, filename):
     if share not in GROUP_ACCESS.get(session["group"], []):
-        flash("⛔ NT_STATUS_ACCESS_DENIED", "error")
+        flash("⛔ Access denied.", "error")
         return redirect(url_for("portal"))
 
     result = smb.delete_file(share, filename,

@@ -6,15 +6,23 @@
     backup: '💾 Backups', security: '🔐 Security'
   };
 
-  window.showTab = function showTab(id) {
+  window.showTab = function showTab(id, updateHash = true) {
     document.querySelectorAll('.tab-section').forEach(section => section.classList.remove('active'));
     document.querySelectorAll('.admin-nav-item').forEach(button => button.classList.remove('active'));
     document.getElementById('tab-' + id)?.classList.add('active');
     document.getElementById('nav-' + id)?.classList.add('active');
     const title = document.getElementById('tab-title');
     if (title) title.textContent = TITLES[id] || id;
+    if (updateHash) history.replaceState(null, '', '#' + id);
     if (id === 'audit') window.loadAudit();
   };
+
+  // Restore the last opened tab after a reload (the refresh button and the
+  // fail2ban auto-reload both use location.reload(), which keeps the hash).
+  const initialTab = (location.hash || '').replace('#', '');
+  if (initialTab && document.getElementById('tab-' + initialTab)) {
+    showTab(initialTab, false);
+  }
 
   window.filterLogs = function filterLogs() {
     const input = document.getElementById('log-filter');

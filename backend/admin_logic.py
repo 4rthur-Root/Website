@@ -21,8 +21,8 @@ SSH_PASSWORD = os.getenv("SSH_PASSWORD", "vagrant")
 SSH_PORT     = int(os.getenv("SSH_PORT", "22"))
 SSH_TIMEOUT  = 8
 
-# Journal d'audit local (sur la machine hôte Flask)
-AUDIT_LOG = Path(__file__).parent / "audit.log"
+# Journal d'audit local (chemin configurable via AUDIT_LOG ; monte sur un volume en Docker)
+AUDIT_LOG = Path(os.getenv("AUDIT_LOG", str(Path(__file__).parent / "audit.log")))
 
 # Groupes valides -- liste fermée, jamais depuis l'input utilisateur
 VALID_GROUPS = {"direction", "comptabilite", "rh", "technique"}
@@ -141,13 +141,13 @@ def get_dashboard_data() -> dict:
             }
 
     except paramiko.AuthenticationException:
-        return {"ok": False, "error": "SSH Authentification refused - check values of SSH_USER/SSH_PASSWORD in .env"}
+        return {"ok": False, "error": "SSH authentication refused - check SSH_USER/SSH_PASSWORD in .env"}
     except (paramiko.NoValidConnectionsError, OSError):
-        return {"ok": False, "error": f"It is impossible to access {SSH_HOST}:{SSH_PORT} - Is the server running ?"}
+        return {"ok": False, "error": f"Cannot reach {SSH_HOST}:{SSH_PORT} - is the server running?"}
     except TimeoutError:
-        return {"ok": False, "error": f"Timeout SSH ({SSH_TIMEOUT}s)"}
+        return {"ok": False, "error": f"SSH timeout ({SSH_TIMEOUT}s)"}
     except Exception as e:
-        return {"ok": False, "error": f"Error SSH : {str(e)}"}
+        return {"ok": False, "error": f"SSH error: {str(e)}"}
 
 
 # Parseurs
@@ -256,7 +256,7 @@ def _get_samba_users(ssh) -> list:
 # Fail2ban : débannissement 
 def unban_ip(ip: str, actor: str = "admin") -> dict:
     if not re.match(r'^[\d\.]+$', ip):
-        return {"ok": False, "error": "Format d'IP invalide"}
+        return {"ok": False, "error": "Invalid IP format"}
     try:
         with _ssh() as ssh:
             ip_safe = shlex.quote(ip)
@@ -264,7 +264,7 @@ def unban_ip(ip: str, actor: str = "admin") -> dict:
             if "1" in out or "OK" in out.upper():
                 audit(actor, "UNBAN_IP", ip)
                 return {"ok": True}
-            return {"ok": False, "error": f"Unexpected answer : {out}"}
+            return {"ok": False, "error": f"Unexpected response: {out}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -315,7 +315,7 @@ def add_user(username: str, group: str, password: str,
             out = _run(ssh, _sudo(f"smbpasswd -e {user_safe} 2>&1"))
             steps.append({"cmd": f"smbpasswd -e {username}", "out": out or "OK"})
 
-            audit(actor, "ADD_USER", username, f"groupe={group}")
+            audit(actor, "ADD_USER", username, f"group={group}")
             return {"ok": True, "steps": steps, "username": username, "group": group}
 
     except Exception as e:
@@ -324,7 +324,7 @@ def add_user(username: str, group: str, password: str,
 
 def delete_user(username: str, actor: str = "admin") -> dict:
     if username in PROTECTED_ACCOUNTS:
-        return {"ok": False, "error": f"Account protected '{username}' -- you can't deleted it."}
+        return {"ok": False, "error": f"Account protected '{username}' -- it cannot be deleted."}
     err = _validate_username(username)
     if err:
         return {"ok": False, "error": err}
@@ -373,7 +373,7 @@ def change_user_password(username: str, new_password: str,
         with _ssh() as ssh:
             exists = _run(ssh, f"id {user_safe} 2>/dev/null")
             if not exists or "uid=" not in exists:
-                return {"ok": False, "error": f"Utilisateur '{username}' introuvable"}
+                return {"ok": False, "error": f"User '{username}' not found"}
 
             # 1. Changer le mot de passe Linux
             out = _run(ssh, f"echo {shlex.quote(f'{username}:{new_password}')} | {_sudo('chpasswd 2>&1')}")
@@ -383,7 +383,7 @@ def change_user_password(username: str, new_password: str,
             out = _run(ssh, f"(echo {pwd_safe}; echo {pwd_safe}) | {_sudo(f'smbpasswd {user_safe} 2>&1')}")
             steps.append({"cmd": f"smbpasswd {username}", "out": out or "OK"})
 
-            audit(actor, "CHANGE_PASSWORD", username, f"par {actor}")
+            audit(actor, "CHANGE_PASSWORD", username, f"by {actor}")
             return {"ok": True, "steps": steps}
 
     except Exception as e:
@@ -403,7 +403,7 @@ def change_own_password(username: str, current_password: str,
     import samba_client as smb
     auth = smb.test_auth(username, current_password)
     if not auth["ok"]:
-        return {"ok": False, "error": "Mot de passe actuel incorrect"}
+        return {"ok": False, "error": "Current password is incorrect"}
 
     user_safe = shlex.quote(username)
     pwd_safe  = shlex.quote(new_password)
@@ -419,7 +419,7 @@ def change_own_password(username: str, current_password: str,
             out = _run(ssh, f"(echo {pwd_safe}; echo {pwd_safe}) | {_sudo(f'smbpasswd {user_safe} 2>&1')}")
             steps.append({"cmd": f"smbpasswd {username}", "out": out or "OK"})
 
-            audit(username, "CHANGE_OWN_PWD", username, "auto-changement")
+            audit(username, "CHANGE_OWN_PWD", username, "self-service")
             return {"ok": True, "steps": steps}
 
     except Exception as e:
@@ -465,7 +465,7 @@ def run_backup_now(actor: str = "admin") -> dict:
             if "__BACKUP_OK__" in out:
                 audit(actor, "BACKUP_MANUAL", "backup_samba.sh")
                 return {"ok": True, "output": out}
-            return {"ok": False, "error": out or "Script introuvable ou erreur"}
+            return {"ok": False, "error": out or "Script not found or error"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -479,4 +479,4 @@ def test_ssh_auth() -> dict:
     except paramiko.AuthenticationException:
         return {"ok": False, "error": "SSH password incorrect"}
     except Exception as e:
-        return {"ok": False, "error": f"SSH Connexion impossible : {str(e)}"}
+        return {"ok": False, "error": f"SSH connection failed: {str(e)}"}

@@ -31,4 +31,22 @@
       if (event.target === overlay) overlay.classList.remove('open');
     });
   });
+
+  // Flash messages: add a close button and auto-dismiss after a few seconds.
+  document.querySelectorAll('.flash').forEach(flash => {
+    const dismiss = () => {
+      flash.classList.add('flash-hide');
+      setTimeout(() => flash.remove(), 350);
+    };
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'flash-close';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.textContent = '✕';
+    close.addEventListener('click', dismiss);
+    flash.appendChild(close);
+
+    setTimeout(dismiss, 6000);
+  });
 })();

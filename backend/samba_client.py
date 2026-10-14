@@ -7,6 +7,7 @@ require_encryption=True -- compatible smb encrypt = required sur le serveur.
 import os
 import uuid
 import datetime
+from contextlib import contextmanager
 from smbprotocol.connection import Connection
 from smbprotocol.session import Session
 from smbprotocol.tree import TreeConnect
@@ -32,15 +33,38 @@ PREVIEW_TEXT  = {".txt", ".log", ".conf", ".sh", ".py", ".md", ".csv", ".ini", "
 PREVIEW_IMAGE = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 PREVIEW_PDF   = {".pdf"}
 
+# Share mode used for every open: we always allow delete, so a handle left
+# open by a read/preview never blocks a later delete with a sharing violation.
+_SHARE_RWD = (ShareAccess.FILE_SHARE_READ
+              | ShareAccess.FILE_SHARE_WRITE
+              | ShareAccess.FILE_SHARE_DELETE)
 
-# Connexion 
-def _get_connection(username: str, password: str):
-    """Connexion SMB2/3 chiffrée -- compatible smb encrypt = required."""
-    conn = Connection(uuid.uuid4(), SAMBA_SERVER, 445)
-    conn.connect()
-    session = Session(conn, username, password, require_encryption=True)
-    session.connect()
-    return conn, session
+
+# Connexion
+@contextmanager
+def _smb(share: str | None, username: str, password: str):
+    """
+    Ouvre une session SMB2/3 chiffrée (+ un partage si `share` est fourni)
+    et garantit la fermeture de la session et de la connexion, même en cas
+    d'erreur (sinon les handles restent ouverts côté serveur -> conflits).
+    """
+    conn = session = tree = None
+    try:
+        conn = Connection(uuid.uuid4(), SAMBA_SERVER, 445)
+        conn.connect()
+        session = Session(conn, username, password, require_encryption=True)
+        session.connect()
+        if share:
+            tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
+            tree.connect()
+        yield tree
+    finally:
+        for obj in (tree, session, conn):
+            try:
+                if obj is not None:
+                    obj.disconnect()
+            except Exception:
+                pass
 
 
 def _format_size(n: int) -> str:
@@ -57,19 +81,46 @@ def _filetime_to_str(ft: int) -> str:
         return "-"
 
 
+def _decode_name(raw) -> str:
+    """SMB returns file names as raw UTF-16LE bytes; decode to str."""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-16-le", errors="replace")
+    return raw
+
+
+def _smb_error(e: Exception) -> str:
+    """Turn a low-level SMB exception into a clean, user-facing message."""
+    s = str(e)
+    if "LOGON_FAILURE" in s or "WRONG_PASSWORD" in s:
+        return "Incorrect username or password."
+    if "ACCESS_DENIED" in s:
+        return "Permission denied for this action."
+    if "OBJECT_PATH_NOT_FOUND" in s or "OBJECT_NAME_NOT_FOUND" in s:
+        return "This file no longer exists on the server."
+    if "OBJECT_NAME_COLLISION" in s:
+        return "A file with this name already exists."
+    if "DISK_FULL" in s:
+        return "The server's disk is full."
+    if "SHARING_VIOLATION" in s or "FILE_LOCK_CONFLICT" in s:
+        return "This file is currently open by someone else."
+    if "NOT_SUPPORTED" in s or "NOT_IMPLEMENTED" in s:
+        return "This operation is not supported by the server."
+    return "The server refused the operation."
+
+
 # Auth
 def test_auth(username: str, password: str) -> dict:
     try:
-        conn, session = _get_connection(username, password)
-        session.disconnect(); conn.disconnect()
+        with _smb(None, username, password):
+            pass
         group = _detect_group(username, password)
         return {"ok": True, "group": group}
     except smb_exc.SMBAuthenticationError:
-        return {"ok": False, "error": "Identifiant ou mot de passe incorrect (STATUS_LOGON_FAILURE)"}
+        return {"ok": False, "error": "Incorrect username or password."}
     except smb_exc.SMBException as e:
-        return {"ok": False, "error": f"Erreur SMB : {str(e)}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Serveur inaccessible : {str(e)}"}
+        return {"ok": False, "error": _smb_error(e)}
+    except Exception:
+        return {"ok": False, "error": "Cannot reach the Samba server. Is the server running?"}
 
 
 def _detect_group(username: str, password: str) -> str:
@@ -79,147 +130,131 @@ def _detect_group(username: str, password: str) -> str:
             if share == "commun":
                 continue
             try:
-                conn, session = _get_connection(username, password)
-                tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-                tree.connect()
-                tree.disconnect(); session.disconnect(); conn.disconnect()
-                return group
+                with _smb(share, username, password):
+                    return group
             except Exception:
-                try:
-                    session.disconnect()
-                    conn.disconnect()
-                except Exception:
-                    pass
+                continue
     return "commun"
 
 
 # Liste des fichiers
 def list_files(share: str, username: str, password: str) -> dict:
     try:
-        conn, session = _get_connection(username, password)
-        tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-        tree.connect()
+        with _smb(share, username, password) as tree:
+            dir_open = Open(tree, "")
+            dir_open.create(
+                ImpersonationLevel.Impersonation,
+                FilePipePrinterAccessMask.GENERIC_READ,
+                FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
+                _SHARE_RWD,
+                CreateDisposition.FILE_OPEN,
+                CreateOptions.FILE_DIRECTORY_FILE,
+            )
 
-        dir_open = Open(tree, "")
-        dir_open.create(
-            ImpersonationLevel.Impersonation,
-            FilePipePrinterAccessMask.GENERIC_READ,
-            FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
-            ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE,
-            CreateDisposition.FILE_OPEN,
-            CreateOptions.FILE_DIRECTORY_FILE,
-        )
+            # Constante SMB2_FIND_BOTH_DIRECTORY_INFO = 3
+            try:
+                raw_files = dir_open.query_directory("*", 3)
+            finally:
+                dir_open.close()
 
-        # Constante SMB2_FIND_BOTH_DIRECTORY_INFO = 3
-        raw_files = dir_open.query_directory("*", 3)
-        dir_open.close()
+            files = []
+            for f in raw_files:
+                name = _decode_name(f["file_name"].get_value())
+                if name in (".", ".."):
+                    continue
 
-        files = []
-        for f in raw_files:
-            name = f["file_name"].get_value()
-            if name in (".", ".."):
-                continue
+                attrs    = f["file_attributes"].get_value()
+                is_dir   = bool(attrs & 0x10)
+                size_val = f["end_of_file"].get_value() if not is_dir else 0
+                mtime    = f["last_write_time"].get_value()
+                ext      = os.path.splitext(name)[1].lower()
 
-            attrs    = f["file_attributes"].get_value()
-            is_dir   = bool(attrs & 0x10)
-            size_val = f["end_of_file"].get_value() if not is_dir else 0
-            mtime    = f["last_write_time"].get_value()
-            ext      = os.path.splitext(name)[1].lower()
+                can_preview = (
+                    ext in PREVIEW_TEXT
+                    or ext in PREVIEW_IMAGE
+                    or ext in PREVIEW_PDF
+                ) and not is_dir
 
-            can_preview = (
-                ext in PREVIEW_TEXT
-                or ext in PREVIEW_IMAGE
-                or ext in PREVIEW_PDF
-            ) and not is_dir
+                files.append({
+                    "name":    name,
+                    "size":    _format_size(size_val) if not is_dir else "-",
+                    "date":    _filetime_to_str(mtime),
+                    "is_dir":  is_dir,
+                    "ext":     ext,
+                    "preview": can_preview,
+                })
 
-            files.append({
-                "name":    name,
-                "size":    _format_size(size_val) if not is_dir else "-",
-                "date":    _filetime_to_str(mtime),
-                "is_dir":  is_dir,
-                "ext":     ext,
-                "preview": can_preview,
-            })
-
-        # Dossiers en premier, puis fichiers par nom
-        files.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
-
-        tree.disconnect()
-        session.disconnect()
-        conn.disconnect()
-        return {"ok": True, "files": files}
+            # Dossiers en premier, puis fichiers par nom
+            files.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+            return {"ok": True, "files": files}
 
     except smb_exc.SMBAuthenticationError:
-        return {"ok": False, "error": "NT_STATUS_LOGON_FAILURE - identifiants incorrects"}
+        return {"ok": False, "error": "Incorrect username or password."}
     except smb_exc.SMBException as e:
-        s = str(e)
-        if "ACCESS_DENIED" in s:
-            return {"ok": False, "error": "NT_STATUS_ACCESS_DENIED - permissions insuffisantes"}
-        return {"ok": False, "error": f"Erreur SMB : {s}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Can't connect to {SAMBA_SERVER} : {str(e)}"}
+        return {"ok": False, "error": _smb_error(e)}
+    except Exception:
+        return {"ok": False, "error": f"Cannot reach the Samba server ({SAMBA_SERVER})."}
 
 
 # Upload
 def upload_file(share: str, filename: str, data: bytes,
                 username: str, password: str) -> dict:
     try:
-        conn, session = _get_connection(username, password)
-        tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-        tree.connect()
+        with _smb(share, username, password) as tree:
+            file_open = Open(tree, filename)
+            file_open.create(
+                ImpersonationLevel.Impersonation,
+                FilePipePrinterAccessMask.GENERIC_WRITE | FilePipePrinterAccessMask.GENERIC_READ,
+                FileAttributes.FILE_ATTRIBUTE_NORMAL,
+                _SHARE_RWD,
+                CreateDisposition.FILE_OVERWRITE_IF,  # Écrase si existe
+                CreateOptions.FILE_NON_DIRECTORY_FILE,
+            )
 
-        file_open = Open(tree, filename)
-        file_open.create(
-            ImpersonationLevel.Impersonation,
-            FilePipePrinterAccessMask.GENERIC_WRITE | FilePipePrinterAccessMask.GENERIC_READ,
-            FileAttributes.FILE_ATTRIBUTE_NORMAL,
-            ShareAccess.FILE_SHARE_READ,
-            CreateDisposition.FILE_OVERWRITE_IF,  # Écrase si existe
-            CreateOptions.FILE_NON_DIRECTORY_FILE,
-        )
+            try:
+                # Écriture chunk par chunk
+                offset = 0
+                while offset < len(data):
+                    chunk = data[offset:offset + CHUNK_SIZE]
+                    file_open.write(chunk, offset)
+                    offset += len(chunk)
+                file_open.flush()
+            finally:
+                file_open.close()
 
-        # Écriture chunk par chunk
-        offset = 0
-        while offset < len(data):
-            chunk = data[offset:offset + CHUNK_SIZE]
-            file_open.write(chunk, offset)
-            offset += len(chunk)
-
-        file_open.flush()
-        file_open.close()
-        tree.disconnect(); session.disconnect(); conn.disconnect()
-        return {"ok": True}
+            return {"ok": True}
 
     except smb_exc.SMBException as e:
-        return {"ok": False, "error": f"Erreur SMB upload : {str(e)}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Erreur upload : {str(e)}"}
+        return {"ok": False, "error": _smb_error(e)}
+    except Exception:
+        return {"ok": False, "error": "Upload failed: cannot reach the Samba server."}
 
 
 # Taille du fichier
 def get_file_size(share: str, filename: str,
                   username: str, password: str) -> int | None:
-    """Retourne la taille en octets du fichier, ou None en cas d'erreur."""
+    """Retourne la taille en octets du fichier, ou None si indéterminable."""
     try:
-        conn, session = _get_connection(username, password)
-        tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-        tree.connect()
+        with _smb(share, username, password) as tree:
+            dirpath  = os.path.dirname(filename)
+            basename = os.path.basename(filename)
 
-        f = Open(tree, filename)
-        f.create(
-            ImpersonationLevel.Impersonation,
-            FilePipePrinterAccessMask.GENERIC_READ,
-            FileAttributes.FILE_ATTRIBUTE_NORMAL,
-            ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE,
-            CreateDisposition.FILE_OPEN,
-            CreateOptions.FILE_NON_DIRECTORY_FILE,
-        )
-        # FILE_STANDARD_INFORMATION = 5
-        info  = f.query_info(info_class=5, info_type=1, output_buffer_length=24)
-        size  = int.from_bytes(info[8:16], "little")
-        f.close()
-        tree.disconnect(); session.disconnect(); conn.disconnect()
-        return size
+            dir_open = Open(tree, dirpath)
+            dir_open.create(
+                ImpersonationLevel.Impersonation,
+                FilePipePrinterAccessMask.GENERIC_READ,
+                FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
+                _SHARE_RWD,
+                CreateDisposition.FILE_OPEN,
+                CreateOptions.FILE_DIRECTORY_FILE,
+            )
+            try:
+                for entry in dir_open.query_directory(basename, 3):
+                    if _decode_name(entry["file_name"].get_value()).lower() == basename.lower():
+                        return int(entry["end_of_file"].get_value())
+            finally:
+                dir_open.close()
+            return None
     except Exception:
         return None
 
@@ -232,10 +267,12 @@ def stream_file(share: str, filename: str,
     Flask envoie chaque chunk immédiatement au navigateur.
     RAM utilisée = 64 Ko max, quel que soit la taille du fichier.
     """
-    conn    = None
-    session = None
+    conn = session = tree = file_open = None
     try:
-        conn, session = _get_connection(username, password)
+        conn = Connection(uuid.uuid4(), SAMBA_SERVER, 445)
+        conn.connect()
+        session = Session(conn, username, password, require_encryption=True)
+        session.connect()
         tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
         tree.connect()
 
@@ -244,30 +281,38 @@ def stream_file(share: str, filename: str,
             ImpersonationLevel.Impersonation,
             FilePipePrinterAccessMask.GENERIC_READ,
             FileAttributes.FILE_ATTRIBUTE_NORMAL,
-            ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE,
+            _SHARE_RWD,
             CreateDisposition.FILE_OPEN,
             CreateOptions.FILE_NON_DIRECTORY_FILE,
         )
 
         offset = 0
         while True:
-            chunk = file_open.read(offset, CHUNK_SIZE)
+            try:
+                chunk = file_open.read(offset, CHUNK_SIZE)
+            except smb_exc.EndOfFile:
+                break  # clean end of file
             if not chunk:
                 break
             yield chunk
             offset += len(chunk)
 
-        file_open.close()
-        tree.disconnect()
-
-    except Exception as e:
+    except Exception:
         yield b""  # Fin propre du générateur en cas d'erreur
     finally:
+        # Toujours libérer le handle et la session, même si le client coupe
+        # la connexion en cours de téléchargement (GeneratorExit).
         try:
-            if session: session.disconnect()
-            if conn:    conn.disconnect()
+            if file_open is not None:
+                file_open.close()
         except Exception:
             pass
+        for obj in (tree, session, conn):
+            try:
+                if obj is not None:
+                    obj.disconnect()
+            except Exception:
+                pass
 
 
 # Prévisualisation texte
@@ -279,69 +324,62 @@ def read_text_file(share: str, filename: str,
     Pour les fichiers > 1 Mo, utiliser stream_file à la place.
     """
     try:
-        conn, session = _get_connection(username, password)
-        tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-        tree.connect()
+        with _smb(share, username, password) as tree:
+            file_open = Open(tree, filename)
+            file_open.create(
+                ImpersonationLevel.Impersonation,
+                FilePipePrinterAccessMask.GENERIC_READ,
+                FileAttributes.FILE_ATTRIBUTE_NORMAL,
+                _SHARE_RWD,
+                CreateDisposition.FILE_OPEN,
+                CreateOptions.FILE_NON_DIRECTORY_FILE,
+            )
 
-        file_open = Open(tree, filename)
-        file_open.create(
-            ImpersonationLevel.Impersonation,
-            FilePipePrinterAccessMask.GENERIC_READ,
-            FileAttributes.FILE_ATTRIBUTE_NORMAL,
-            ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE,
-            CreateDisposition.FILE_OPEN,
-            CreateOptions.FILE_NON_DIRECTORY_FILE,
-        )
+            try:
+                data = b""
+                offset = 0
+                while True:
+                    try:
+                        chunk = file_open.read(offset, CHUNK_SIZE)
+                    except smb_exc.EndOfFile:
+                        break  # clean end of file
+                    if not chunk:
+                        break
+                    data   += chunk
+                    offset += len(chunk)
+                    if offset >= max_bytes:
+                        data += b"\n\n[... truncated: file larger than 1 MB ...]"
+                        break
+            finally:
+                file_open.close()
 
-        data = b""
-        offset = 0
-        while True:
-            chunk = file_open.read(offset, CHUNK_SIZE)
-            if not chunk:
-                break
-            data   += chunk
-            offset += len(chunk)
-            if offset >= max_bytes:
-                data += "\n\n[... file truncated at 1 Mo ...]"
-                break
-
-        file_open.close()
-        tree.disconnect(); session.disconnect(); conn.disconnect()
-
-        content = data.decode("utf-8", errors="replace")
-        return {"ok": True, "content": content}
+            content = data.decode("utf-8", errors="replace")
+            return {"ok": True, "content": content}
 
     except smb_exc.SMBException as e:
-        return {"ok": False, "error": f"Erreur SMB : {str(e)}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Lecture impossible : {str(e)}"}
+        return {"ok": False, "error": _smb_error(e)}
+    except Exception:
+        return {"ok": False, "error": "Unable to read this file."}
 
 
 # Suppression
 def delete_file(share: str, filename: str,
                 username: str, password: str) -> dict:
     try:
-        conn, session = _get_connection(username, password)
-        tree = TreeConnect(session, f"\\\\{SAMBA_SERVER}\\{share}")
-        tree.connect()
-
-        file_open = Open(tree, filename)
-        file_open.create(
-            ImpersonationLevel.Impersonation,
-            FilePipePrinterAccessMask.DELETE,
-            FileAttributes.FILE_ATTRIBUTE_NORMAL,
-            ShareAccess.FILE_SHARE_DELETE,
-            CreateDisposition.FILE_OPEN,
-            CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE,
-        )
-        file_open.close()
-        tree.disconnect(); session.disconnect(); conn.disconnect()
+        with _smb(share, username, password) as tree:
+            file_open = Open(tree, filename)
+            file_open.create(
+                ImpersonationLevel.Impersonation,
+                FilePipePrinterAccessMask.DELETE,
+                FileAttributes.FILE_ATTRIBUTE_NORMAL,
+                ShareAccess.FILE_SHARE_DELETE,
+                CreateDisposition.FILE_OPEN,
+                CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE,
+            )
+            file_open.close()
         return {"ok": True}
 
     except smb_exc.SMBException as e:
-        s = str(e)
-        if "ACCESS_DENIED" in s:
-            return {"ok": False, "error": "NT_STATUS_ACCESS_DENIED - you are not the owner of this file"}
-        return {"ok": False, "error": f"Erreur SMB : {s}"}
-    except Exception as e:
-        return {"ok": False, "error": f"Suppression impossible : {str(e)}"}
+        return {"ok": False, "error": _smb_error(e)}
+    except Exception:
+        return {"ok": False, "error": "Unable to delete this file."}
