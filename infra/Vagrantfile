@@ -2,18 +2,23 @@ Vagrant.configure("2") do |config|
   config.vm.box      = "bento/ubuntu-24.04"
   config.vm.hostname = "samba"
 
+  # Disable the default /vagrant synced folder: on the host it uses NFS,
+  # which needs nfs-server + firewall rules and is fragile across suspend.
+  # We don't need it -- the project is copied to /home/vagrant/samba below.
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # Fixed, host-only IP used by the portal (see .env -> VM_IP).
+  # libvirt assigns 10.0.1.10 through a DHCP reservation, so DHCP stays enabled.
   config.vm.network "private_network",
                     ip: "10.0.1.10",
-                    libvirt__network_name: "samba-net",
-                    libvirt__dhcp_enabled: false,
-                    libvirt__forward_mode: "none"
+                    libvirt__network_name: "samba-net"
 
   config.vm.provider :libvirt do |lv|
     lv.memory         = 2048
     lv.cpus           = 2
     lv.disk_bus       = "virtio"
     lv.nic_model_type = "virtio"
-    lv.default_prefix = ""
+    lv.default_prefix = "samba"
   end
 
   # Copy project files to /home/vagrant/samba/

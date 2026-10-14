@@ -4,5 +4,7 @@ audit.log
 __pycache__/
 .python-version
 .venv
+.vagrant/
 
 test
+roadmap.md

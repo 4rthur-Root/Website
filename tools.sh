@@ -50,9 +50,23 @@ fi
 install_pkg vagrant
 
 # Vagrant plugins
+# HashiCorp Vagrant loads plugins from ~/.vagrant.d/gems/<ruby> (its own
+# embedded Ruby) and ignores the distro's /usr/share/vagrant/gems. Installing
+# the Fedora `vagrant-libvirt` RPM is therefore useless here: the plugin has to
+# be installed the supported way. It compiles against libvirt, hence the -devel
+# packages below.
 
 echo " Vagrant plugins "
-install_pkg vagrant-libvirt
+for pkg in gcc make libvirt-devel libxml2-devel; do
+    install_pkg "$pkg"
+done
+
+if vagrant plugin list 2>/dev/null | grep -q '^vagrant-libvirt'; then
+    echo "  ✓ vagrant-libvirt plugin - already installed, skipping"
+else
+    echo "  * Installing vagrant-libvirt plugin (this can take a couple of minutes)..."
+    vagrant plugin install vagrant-libvirt
+fi
 
 add_zshrc 'export VAGRANT_DEFAULT_PROVIDER=libvirt'
 

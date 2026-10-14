@@ -137,7 +137,7 @@ log_ok "Directories created with permissions"
 # 6. smb.conf configuration
 log_info "Writing smb.conf..."
 
-ssh_run "cat << 'SMBCONF' | echo '$SSH_PASSWORD' | sudo -S tee /etc/samba/smb.conf >/dev/null
+ssh_run "cat << 'SMBCONF' | sudo -S tee /etc/samba/smb.conf >/dev/null
 [global]
    workgroup = WORKGROUP
    server string = SambaPME Server
@@ -207,22 +207,29 @@ log_ok "smb.conf written"
 # 7. Fail2ban configuration
 log_info "Configuring Fail2ban..."
 
-ssh_run "cat << 'F2BCONF' | echo '$SSH_PASSWORD' | sudo -S tee /etc/fail2ban/jail.d/samba.conf >/dev/null
+ssh_run "cat << 'F2BCONF' | sudo -S tee /etc/fail2ban/jail.d/samba.conf >/dev/null
 [samba]
 enabled  = true
 port     = 139,445
 filter   = samba
-logpath  = /var/log/samba/log.smbd
+# Ubuntu's default backend is 'systemd', which ignores logpath.
+# 'polling' re-globs logpath so new per-client files (log.<ip>) are picked up too.
+backend  = polling
+# Auth failures land in log.<client>, not log.smbd -> watch all of them
+logpath  = /var/log/samba/log.*
 maxretry = 3
 bantime  = 600
 findtime = 300
 F2BCONF"
 
-ssh_run "cat << 'F2BFILT' | echo '$SSH_PASSWORD' | sudo -S tee /etc/fail2ban/filter.d/samba.conf >/dev/null
+ssh_run "cat << 'F2BFILT' | sudo -S tee /etc/fail2ban/filter.d/samba.conf >/dev/null
 [Definition]
-failregex = .*Authentication.*Account-Name: <HOST>.*NT_STATUS_WRONG_PASSWORD.*
-            .*Authentication.*Account-Name: <HOST>.*NT_STATUS_NO_SUCH_USER.*
-            .*Authentication.*smb login.*from <HOST>.*failed.*
+# Samba >= 4.15 emits one-line JSON auth events:
+#   {\"timestamp\": \"...\", \"status\": \"NT_STATUS_WRONG_PASSWORD\", ...,
+#    \"remoteAddress\": \"ipv4:1.2.3.4:port\", ...}
+# status + remoteAddress + timestamp are all on the SAME line, so fail2ban
+# can both extract <HOST> and date the match.
+failregex = .*timestamp.*status.*NT_STATUS_(?:WRONG_PASSWORD|LOGON_FAILURE|NO_SUCH_USER|ACCOUNT_DISABLED|ACCOUNT_LOCKED_OUT).*remoteAddress.*ipv4:<HOST>:\d+.*
 ignoreregex =
 F2BFILT"
 log_ok "Fail2ban configured"
@@ -230,7 +237,7 @@ log_ok "Fail2ban configured"
 # 8. Backup script
 log_info "Creating backup script..."
 
-ssh_run "cat << 'BAKSCRIPT' | echo '$SSH_PASSWORD' | sudo -S tee /usr/local/bin/backup_samba.sh >/dev/null
+ssh_run "cat << 'BAKSCRIPT' | sudo -S tee /usr/local/bin/backup_samba.sh >/dev/null
 #!/bin/bash
 BACKUP_DIR=/srv/backup
 SRC_DIR=/srv/samba

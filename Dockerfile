@@ -19,8 +19,8 @@ COPY backend/ /app/backend/
 COPY frontend/ /app/frontend/
 COPY main.py .
 
-# Pre-create the audit log so the named volume mounts a file (not a directory)
-RUN touch /app/backend/audit.log
+# Pre-create the logs directory used as the audit-log volume mount point
+RUN mkdir -p /app/logs
 
 # USER appuser
 

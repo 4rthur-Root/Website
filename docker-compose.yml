@@ -7,8 +7,9 @@ services:
     environment:
       SAMBA_SERVER: ${VM_IP:-10.0.1.10}   # la VM (systemd) :445
       SSH_HOST:      ${VM_IP:-10.0.1.10}   # la VM (systemd) :22
+      AUDIT_LOG:     /app/logs/audit.log   # journal d'audit (rangé dans le volume)
     volumes:
-      - admin-audit:/app/backend/audit.log          # bind mount pour les logs d'administrateur
+      - admin-audit:/app/logs                       # volume (dossier) pour le journal d'audit
       - sessions:/tmp/flask_sessions_samba          # Sessions web
     restart: unless-stopped
     healthcheck:  # Check health
