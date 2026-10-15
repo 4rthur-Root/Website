@@ -1,19 +1,37 @@
 # SambaPME
 
 <div align='center'>
-[Lire la version française](./README.fr.md)
+<a href="./README.fr.md">Lire la version française</a>
 </div>
 
 **A web portal for a Samba file server.** Employees sign in and browse the shared
 folders of their department; administrators get a dashboard to manage Samba accounts,
-watch fail2ban, run backups and audit activity - all from the browser.
+watch fail2ban, run backups and audit activity, all from the browser.
+
+---
+
+## Contents
+
+- [Context](#context)
+- [Architecture](#architecture)
+- [How the code files work together](#how-the-code-files-work-together)
+- [Request lifecycle](#request-lifecycle)
+- [Tech stack](#tech-stack)
+- [Repository layout](#repository-layout)
+- [Quickstart](#quickstart)
+- [Demo accounts](#demo-accounts)
+- [Security highlights](#security-highlights)
+- [Design decisions](#design-decisions-short-version-see-full-in-expmd)
+- [Production notes](#production-notes)
+- [Screenshots](#screenshots)
+- [Status](#status)
 
 ---
 
 ## Context
 
-SambaPME simulates the internal file-sharing portal of a small company (a *PME*).
-A Linux server runs **Samba 4** (SMB2/3 with **encryption required**) and exposes one
+SambaPME simulates the internal file-sharing portal of a small company (a *PME*). It is part of a bigger project begun earlier this year.
+A Linux server runs **Samba 4** (protocol SMB2/3 with **encryption required**) and exposes one
 share per department (`direction`, `comptabilite`, `rh`, `technique`) plus a shared one
 (`commun`). The portal lets employees **list, upload, download, preview and delete**
 files, and gives IT a dashboard that drives the **real server over SSH**
@@ -21,8 +39,8 @@ files, and gives IT a dashboard that drives the **real server over SSH**
 
 The infrastructure is deliberate and realistic:
 
-- **Samba, fail2ban, backups and logs run as systemd services on the VM** - the real server.
-- **Only the web app is containerized** (Docker); it reaches Samba over **SMB** and the
+- **Samba, fail2ban, backups and logs run as systemd services on the VM**, that's the real server.
+- **Only the web app is containerized** using *Docker*; it reaches Samba over **SMB** and the
   host over **SSH**.
 
 > Why this split, and how everything fits together? See **[`exp.md`](./exp.md)** for a
@@ -64,7 +82,7 @@ flowchart LR
 | **Administrator** | browser → `web:5000` → SSH `10.0.1.10:22` | The dashboard runs real commands on the host and renders their output. |
 | **Security** | fail2ban ⟷ Samba logs | fail2ban bans abusive IPs at the OS level; the dashboard reads the ban list and can unban an address. |
 
-Inside a container, `127.0.0.1` is the *container itself* - that is why the portal targets
+Inside a container, `127.0.0.1` is the *container itself*, that is why the portal targets
 the VM's IP (`10.0.1.10`) for both SMB and SSH.
 
 ## How the code files work together
@@ -197,14 +215,16 @@ shots/              screenshots used in this README
 
 **Prerequisites:** a host with libvirt + Vagrant + uv (`make tools` installs them on Fedora).
 
+> NB: If you are on a distribution not related to *Red Hat*, you should change dnf to apt and everything should work fine, and if you are on windows, libvirt should probably be a pain to install.
+
 ```bash
 make tools      # 1. install host tooling (libvirt, Vagrant, uv)
-make machine    # 2. boot the VM (10.0.1.10) with Docker inside
+make machine    # 2. boot the VM (ip:10.0.1.10) with Docker inside
 make infra      # 3. provision Samba + fail2ban + backups on the VM
 make env        # 4. create .env from .env.example
 make sync       # 5. copy the project into the VM (/home/vagrant/samba)
 make up         # 6. build & start the web container on the VM
-# → open http://10.0.1.10:5000
+# Then open http://10.0.1.10:5000 in your browser.
 ```
 
 | Target | Runs on | Purpose |
@@ -240,19 +260,19 @@ Employees only see the shares allowed to their group, plus the shared `commun` s
 ## Security highlights
 
 - **SMBv1 disabled**, SMB2 minimum, **SMB3 encryption required** (`smb encrypt = required`).
-- **fail2ban** watches the Samba logs and bans brute-force IPs - active on the host, not simulated.
+- **fail2ban** watches the Samba logs and bans brute-force IPs. It is active on the host, not simulated.
 - Every external value is passed through **`shlex.quote()`** before reaching a shell command.
 - **Server-side sessions**, signed, with a configurable secret key.
 - An **audit log** records administrative actions.
 - Nightly **backups** to `/srv/backup` (full on Sunday, incremental otherwise).
 
-## Design decisions (short version)
+## Design decisions (short version, see full in [exp.md](./exp.md))
 
 | Decision | Why | Alternative considered |
 |----------|-----|------------------------|
 | Samba stays **systemd**, not containerized | Real fail2ban, real services, real IPs - the security thread is genuine | Samba in a container (loses the realism) |
 | Only the **web** is dockerized | Reproducible, portable app layer | Everything bare-metal |
-| Container → **VM IP**, not `127.0.0.1` | Inside a container, loopback is the container | `network_mode: host` (less portable) |
+| Container -> **VM IP**, not `127.0.0.1` | Inside a container, loopback is the container | `network_mode: host` (less portable) |
 | **No gunicorn/nginx** (demo) | Keep the footprint minimal | gunicorn + nginx (documented as a prod upgrade) |
 | **Server-rendered** pages (Jinja) + light JS | Simple, SEO/robust, no build step | Full SPA |
 

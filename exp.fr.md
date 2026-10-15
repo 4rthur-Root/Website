@@ -13,6 +13,25 @@
 
 ---
 
+## Sommaire
+
+- [1. Le modèle mental en une phrase](#1-le-modèle-mental-en-une-phrase)
+- [2. Qui parle à qui (et pourquoi l'IP et pas `localhost`)](#2-qui-parle-à-qui-et-pourquoi-lip-et-pas-localhost)
+- [3. Comment le code est découpé](#3-comment-le-code-est-découpé)
+- [4. Flask en 30 secondes](#4-flask-en-30-secondes)
+- [5. Jinja2 : « du Python dans du HTML » (la partie que tu voulais creuser)](#5-jinja2---du-python-dans-du-html--la-partie-que-tu-voulais-creuser)
+- [6. La couche SMB (`samba_client.py`)](#6-la-couche-smb-samba_clientpy)
+- [7. La couche admin (`admin_logic.py`)](#7-la-couche-admin-admin_logicpy)
+- [8. Sessions & authentification](#8-sessions--authentification)
+- [9. Posture sécurité (le « fil rouge »)](#9-posture-sécurité-le--fil-rouge-)
+- [10. Empaquetage & exécution (Docker, uv)](#10-empaquetage--exécution-docker-uv)
+- [11. L'infra : qu'est-ce qui tourne où ? (le point qui prête à confusion)](#11-linfra--quest-ce-qui-tourne-où--le-point-qui-prête-à-confusion)
+- [12. Décisions & compromis (tableau récapitulatif)](#12-décisions--compromis-tableau-récapitulatif)
+- [13. « Est-ce que j'y aurais pensé tout seul ? » - les réflexes à garder](#13--est-ce-que-jy-aurais-pensé-tout-seul-----les-réflexes-à-garder)
+- [14. Glossaire](#14-glossaire)
+
+---
+
 ## 1. Le modèle mental en une phrase
 
 > Un navigateur parle à **une petite appli web (Flask)** qui, elle, ne stocke

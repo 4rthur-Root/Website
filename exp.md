@@ -13,6 +13,25 @@
 
 ---
 
+## Contents
+
+- [1. The mental model in one sentence](#1-the-mental-model-in-one-sentence)
+- [2. Who talks to whom (and why the IP and not `localhost`)](#2-who-talks-to-whom-and-why-the-ip-and-not-localhost)
+- [3. How the code is split](#3-how-the-code-is-split)
+- [4. Flask in 30 seconds](#4-flask-in-30-seconds)
+- [5. Jinja2: "Python inside HTML" (the part you wanted to dig into)](#5-jinja2-python-inside-html-the-part-you-wanted-to-dig-into)
+- [6. The SMB layer (`samba_client.py`)](#6-the-smb-layer-samba_clientpy)
+- [7. The admin layer (`admin_logic.py`)](#7-the-admin-layer-admin_logicpy)
+- [8. Sessions & authentication](#8-sessions--authentication)
+- [9. Security posture (the "thread")](#9-security-posture-the-thread)
+- [10. Packaging & running (Docker, uv)](#10-packaging--running-docker-uv)
+- [11. The infra: what runs where? (the confusing point)](#11-the-infra-what-runs-where-the-confusing-point)
+- [12. Decisions & trade-offs (summary table)](#12-decisions--trade-offs-summary-table)
+- [13. "Would I have thought of that on my own?" - the reflexes to keep](#13-would-i-have-thought-of-that-on-my-own---the-reflexes-to-keep)
+- [14. Glossary](#14-glossary)
+
+---
+
 ## 1. The mental model in one sentence
 
 > A browser talks to **a small web app (Flask)** which stores **nothing** itself: it

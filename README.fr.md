@@ -1,20 +1,39 @@
 # SambaPME
 
 <div align='center'>
-[Read the English version](./README.md)
+<a href="./README.md">Read the English version</a>
 </div>
 
 **Un portail web pour un serveur de fichiers Samba.** Les employés se connectent et
 parcourent les dossiers partagés de leur service ; les administrateurs disposent d'un
 tableau de bord pour gérer les comptes Samba, surveiller fail2ban, lancer les
-sauvegardes et auditer l'activité - le tout depuis le navigateur.
+sauvegardes et auditer l'activité, le tout depuis le navigateur.
+
+---
+
+## Sommaire
+
+- [Contexte](#contexte)
+- [Architecture](#architecture)
+- [Comment les fichiers s'articulent](#comment-les-fichiers-sarticulent)
+- [Cycle d'une requête](#cycle-dune-requête)
+- [Stack technique](#stack-technique)
+- [Arborescence du dépôt](#arborescence-du-dépôt)
+- [Démarrage rapide](#démarrage-rapide)
+- [Comptes de démonstration](#comptes-de-démonstration)
+- [Points forts sécurité](#points-forts-sécurité)
+- [Décisions de conception](#décisions-de-conception-version-courte-voir-le-détail-dans-expfrmd)
+- [Notes de production](#notes-de-production)
+- [Captures d'écran](#captures-décran)
+- [Statut](#statut)
 
 ---
 
 ## Contexte
 
 SambaPME simule le portail de partage de fichiers interne d'une petite entreprise
-(une *PME*). Un serveur Linux fait tourner **Samba 4** (SMB2/3 avec **chiffrement
+(une *PME*). Il fait partie d'un projet plus vaste commencé plus tôt cette année.
+Un serveur Linux fait tourner **Samba 4** (protocole SMB2/3 avec **chiffrement
 obligatoire**) et expose un partage par service (`direction`, `comptabilite`, `rh`,
 `technique`) plus un partage commun (`commun`). Le portail permet aux employés de
 **lister, uploader, télécharger, prévisualiser et supprimer** des fichiers, et donne
@@ -23,8 +42,8 @@ obligatoire**) et expose un partage par service (`direction`, `comptabilite`, `r
 
 L'infrastructure est volontairement réaliste :
 
-- **Samba, fail2ban, les sauvegardes et les logs tournent comme services systemd sur la VM** - le vrai serveur.
-- **Seule l'application web est conteneurisée** (Docker) ; elle joint Samba en **SMB** et
+- **Samba, fail2ban, les sauvegardes et les logs tournent comme services systemd sur la VM**, c'est le vrai serveur.
+- **Seule l'application web est conteneurisée** avec *Docker* ; elle joint Samba en **SMB** et
   l'hôte en **SSH**.
 
 > Pourquoi ce découpage, et comment tout s'articule ? Voir **[`exp.fr.md`](./exp.fr.md)** pour
@@ -66,7 +85,7 @@ flowchart LR
 | **Administrateur** | navigateur → `web:5000` → SSH `10.0.1.10:22` | Le tableau de bord exécute de vraies commandes sur l'hôte et affiche leur sortie. |
 | **Sécurité** | fail2ban ⟷ logs Samba | fail2ban bannit les IP abusives au niveau de l'OS ; le tableau de bord lit la liste des bans et peut débannir une adresse. |
 
-Dans un conteneur, `127.0.0.1` désigne *le conteneur lui-même* - c'est pourquoi le
+Dans un conteneur, `127.0.0.1` désigne *le conteneur lui-même*, c'est pourquoi le
 portail cible l'IP de la VM (`10.0.1.10`) pour SMB comme pour SSH.
 
 ## Comment les fichiers s'articulent
@@ -199,14 +218,16 @@ shots/              captures d'écran utilisées dans ce README
 
 **Prérequis :** un hôte avec libvirt + Vagrant + uv (`make tools` les installe sur Fedora).
 
+> NB : si vous êtes sur une distribution non liée à *Red Hat*, remplacez `dnf` par `apt` et tout devrait fonctionner ; sous Windows, libvirt sera probablement pénible à installer.
+
 ```bash
 make tools      # 1. installe l'outillage hôte (libvirt, Vagrant, uv)
-make machine    # 2. démarre la VM (10.0.1.10) avec Docker à l'intérieur
+make machine    # 2. démarre la VM (ip:10.0.1.10) avec Docker à l'intérieur
 make infra      # 3. provisionne Samba + fail2ban + sauvegardes sur la VM
 make env        # 4. crée .env à partir de .env.example
 make sync       # 5. copie le projet dans la VM (/home/vagrant/samba)
 make up         # 6. construit & lance le conteneur web sur la VM
-# → ouvrir http://10.0.1.10:5000
+# Ouvrez ensuite http://10.0.1.10:5000 dans votre navigateur.
 ```
 
 | Cible | S'exécute sur | Rôle |
@@ -243,19 +264,19 @@ commun `commun`.
 ## Points forts sécurité
 
 - **SMBv1 désactivé**, SMB2 minimum, **chiffrement SMB3 obligatoire** (`smb encrypt = required`).
-- **fail2ban** surveille les logs Samba et bannit les IP de brute-force - actif sur l'hôte, non simulé.
+- **fail2ban** surveille les logs Samba et bannit les IP en brute-force. Il est actif sur l'hôte, non simulé.
 - Toute valeur externe passe par **`shlex.quote()`** avant d'atteindre une commande shell.
 - **Sessions côté serveur**, signées, avec une clé secrète configurable.
 - Un **journal d'audit** enregistre les actions d'administration.
 - **Sauvegardes** nocturnes vers `/srv/backup` (complète le dimanche, incrémentale sinon).
 
-## Décisions de conception (version courte)
+## Décisions de conception (version courte, voir le détail dans [exp.fr.md](./exp.fr.md))
 
 | Décision | Pourquoi | Alternative envisagée |
 |----------|----------|-----------------------|
 | Samba reste en **systemd**, pas conteneurisé | Vrais fail2ban/services/IP - le fil rouge sécu est réel | Samba en conteneur (perd le réalisme) |
 | Seul le **web** est dockerisé | Couche applicative reproductible et portable | Tout en bare-metal |
-| Le conteneur vise l'**IP de la VM**, pas `127.0.0.1` | Dans un conteneur, le loopback c'est le conteneur | `network_mode: host` (moins portable) |
+| Conteneur -> **IP de la VM**, pas `127.0.0.1` | Dans un conteneur, le loopback c'est le conteneur | `network_mode: host` (moins portable) |
 | **Pas de gunicorn/nginx** (démo) | Empreinte minimale | gunicorn + nginx (documenté comme évolution prod) |
 | Pages **rendues côté serveur** (Jinja) + JS léger | Simple, robuste, pas d'étape de build | SPA complet |
 
